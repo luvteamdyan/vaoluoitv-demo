@@ -403,45 +403,83 @@ jobs:
             CONTAINER_STATE=$(echo "$CONTAINERS_JSON" | jq -r ".[] | select(.Id == \"$CONTAINER_ID\") | .State")
             echo "📊 Container state: $CONTAINER_STATE"
             
-            # Simple restart approach for testing
-            echo "🔄 Restarting container: $service"
-            
-            # Restart container
-            RESTART_CODE=$(curl -s -o /tmp/restart_response.json -w "%{http_code}" -X POST \
-              "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/$CONTAINER_ID/restart?t=30" \
+            # Pull latest image first
+            echo "🔄 Pulling latest image: $IMAGE_NAME"
+            PULL_CODE=$(curl -s -o /tmp/pull_response.json -w "%{http_code}" -X POST \
+              "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/images/create?fromImage=$IMAGE_NAME" \
               -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
             
-            echo "Restart HTTP Code: $RESTART_CODE"
-            if [ "$RESTART_CODE" -ge 200 ] && [ "$RESTART_CODE" -lt 300 ]; then
-              echo "✅ Container restarted successfully"
+            echo "Pull HTTP Code: $PULL_CODE"
+            if [ "$PULL_CODE" -ge 200 ] && [ "$PULL_CODE" -lt 300 ]; then
+              echo "✅ Latest image pulled successfully"
             else
-              echo "⚠️ Container restart response: $RESTART_CODE"
+              echo "⚠️ Failed to pull image (HTTP: $PULL_CODE), but continuing..."
               echo "Response:"
-              cat /tmp/restart_response.json
+              cat /tmp/pull_response.json
             fi
             
-            # Wait for container to be running
-            sleep 10
+            # Stop container gracefully
+            echo "🛑 Stopping container gracefully..."
+            STOP_CODE=$(curl -s -o /tmp/stop_response.json -w "%{http_code}" -X POST \
+              "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/$CONTAINER_ID/stop?t=30" \
+              -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
             
-            # Check if container is running after restart
-            echo "⏳ Checking container status after restart..."
-            MAX_WAIT=60
+            echo "Stop HTTP Code: $STOP_CODE"
+            if [ "$STOP_CODE" -ge 200 ] && [ "$STOP_CODE" -lt 300 ]; then
+              echo "✅ Container stopped successfully"
+            else
+              echo "⚠️ Container stop response: $STOP_CODE (may already be stopped)"
+            fi
+            
+            # Wait for graceful shutdown
+            sleep 5
+            
+            # Remove container
+            echo "🗑️ Removing container..."
+            REMOVE_CODE=$(curl -s -o /tmp/remove_response.json -w "%{http_code}" -X DELETE \
+              "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/$CONTAINER_ID" \
+              -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
+            
+            echo "Remove HTTP Code: $REMOVE_CODE"
+            if [ "$REMOVE_CODE" -ge 200 ] && [ "$REMOVE_CODE" -lt 300 ]; then
+              echo "✅ Container removed successfully"
+            else
+              echo "⚠️ Container remove response: $REMOVE_CODE"
+            fi
+            
+            # Wait for container to be fully removed
+            sleep 3
+            
+            # The container will be recreated automatically by docker-compose restart policy
+            echo "🚀 Container $service will be recreated automatically by docker-compose with latest image"
+            
+            # Wait for container to be recreated and healthy
+            echo "⏳ Waiting for container to be recreated and healthy..."
+            MAX_WAIT=120
             WAIT_COUNT=0
             
             while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
-              # Get updated container status
+              # Get updated containers list
               UPDATED_CONTAINERS_JSON=$(curl -s -X GET \
                 "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/json?all=true" \
                 -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
               
-              UPDATED_CONTAINER_STATE=$(echo "$UPDATED_CONTAINERS_JSON" | jq -r ".[] | select(.Id == \"$CONTAINER_ID\") | .State")
+              # Find new container (ID will be different after recreate)
+              NEW_CONTAINER_ID=$(echo "$UPDATED_CONTAINERS_JSON" | jq -r ".[] | select(.Names[] | contains(\"$CONTAINER_PATTERN\")) | .Id")
               
-              if [ "$UPDATED_CONTAINER_STATE" == "running" ]; then
-                echo "✅ Container $service is running successfully"
-                DEPLOYMENT_RESULTS+=("$service:SUCCESS")
-                break
+              if [ -n "$NEW_CONTAINER_ID" ] && [ "$NEW_CONTAINER_ID" != "null" ]; then
+                # Check if new container is running
+                NEW_CONTAINER_STATE=$(echo "$UPDATED_CONTAINERS_JSON" | jq -r ".[] | select(.Id == \"$NEW_CONTAINER_ID\") | .State")
+                if [ "$NEW_CONTAINER_STATE" == "running" ]; then
+                  echo "✅ Container $service is running successfully with new image"
+                  echo "🆕 New container ID: $NEW_CONTAINER_ID"
+                  DEPLOYMENT_RESULTS+=("$service:SUCCESS")
+                  break
+                else
+                  echo "⏳ Container $service is $NEW_CONTAINER_STATE, waiting..."
+                fi
               else
-                echo "⏳ Container $service is $UPDATED_CONTAINER_STATE, waiting..."
+                echo "⏳ Container $service not yet recreated, waiting..."
               fi
               
               sleep 5
@@ -449,7 +487,7 @@ jobs:
             done
             
             if [ $WAIT_COUNT -ge $MAX_WAIT ]; then
-              echo "❌ Timeout waiting for container $service to be running"
+              echo "❌ Timeout waiting for container $service to be recreated and running"
               DEPLOYMENT_RESULTS+=("$service:TIMEOUT")
             fi
           done
