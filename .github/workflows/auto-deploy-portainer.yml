@@ -186,17 +186,17 @@ jobs:
             exit 1
           fi
           
-          # Find the vaoluoi stack
-          STACK_ID=$(cat /tmp/stacks.json | jq -r '.[] | select(.Name == "vaoluoi") | .Id')
+          # Find the vaoluoitv stack
+          STACK_ID=$(cat /tmp/stacks.json | jq -r '.[] | select(.Name == "vaoluoitv") | .Id')
           
           if [ -z "$STACK_ID" ] || [ "$STACK_ID" == "null" ]; then
-            echo "❌ Stack 'vaoluoi' not found!"
+            echo "❌ Stack 'vaoluoitv' not found!"
             echo "Available stacks:"
             cat /tmp/stacks.json | jq -r '.[] | .Name'
             exit 1
           fi
           
-          echo "✅ Found stack 'vaoluoi' with ID: $STACK_ID"
+          echo "✅ Found stack 'vaoluoitv' with ID: $STACK_ID"
           
           # Get stack details
           echo "📋 Getting stack details..."
@@ -274,7 +274,7 @@ jobs:
         run: |
           echo "### 🎉 Stack Deployment Successful" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Stack:** vaoluoi" >> $GITHUB_STEP_SUMMARY
+          echo "**Stack:** vaoluoitv" >> $GITHUB_STEP_SUMMARY
           echo "**Action type:** ${{ needs.detect-changes.outputs.action-type }}" >> $GITHUB_STEP_SUMMARY
           echo "**Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
           echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
