@@ -224,22 +224,35 @@ jobs:
           echo "$STACK_DETAILS" | jq -r 'keys[]' | head -10
           
           # Check if it's a Git-based stack (EntryPoint) or file-based stack
-          if echo "$STACK_DETAILS" | jq -e '.GitConfig' > /dev/null; then
+          if echo "$STACK_DETAILS" | jq -e '.GitConfig' > /dev/null && [ "$(echo "$STACK_DETAILS" | jq -r '.GitConfig')" != "null" ]; then
             echo "✅ Stack is Git-based (EntryPoint)"
             GIT_CONFIG=$(echo "$STACK_DETAILS" | jq -r '.GitConfig')
             echo "📋 Git Config: $GIT_CONFIG"
-          elif echo "$STACK_DETAILS" | jq -e '.StackFileContent' > /dev/null; then
+            STACK_METHOD="git"
+          elif echo "$STACK_DETAILS" | jq -e '.StackFileContent' > /dev/null && [ "$(echo "$STACK_DETAILS" | jq -r '.StackFileContent')" != "null" ]; then
             echo "✅ Stack has StackFileContent (file-based)"
             COMPOSE_LENGTH=$(echo "$STACK_DETAILS" | jq -r '.StackFileContent' | wc -c)
             echo "📏 Compose file length: $COMPOSE_LENGTH characters"
+            STACK_METHOD="file"
           else
-            echo "❌ Stack does not have GitConfig or StackFileContent"
+            echo "❌ Stack does not have valid GitConfig or StackFileContent"
             echo "🔍 Available fields:"
             echo "$STACK_DETAILS" | jq -r 'keys[]'
+            echo "🔍 GitConfig value: $(echo "$STACK_DETAILS" | jq -r '.GitConfig // "null"')"
+            echo "🔍 StackFileContent value: $(echo "$STACK_DETAILS" | jq -r '.StackFileContent // "null"')"
+            
+            # Try to determine method from stack type and other fields
+            if echo "$STACK_DETAILS" | jq -e '.EntryPoint' > /dev/null && [ "$(echo "$STACK_DETAILS" | jq -r '.EntryPoint')" != "null" ]; then
+              echo "✅ Found EntryPoint field - treating as Git-based stack"
+              STACK_METHOD="git"
+            else
+              echo "❌ Cannot determine stack method - defaulting to file-based"
+              STACK_METHOD="file"
+            fi
           fi
           
-          # For Git-based stacks (EntryPoint), we need to trigger a pull and redeploy
-          if echo "$STACK_DETAILS" | jq -e '.GitConfig' > /dev/null; then
+          # Update stack based on detected method
+          if [ "$STACK_METHOD" == "git" ]; then
             echo "🔄 Updating Git-based stack (EntryPoint)..."
             
             # For Git-based stacks, we trigger a pull and redeploy
@@ -247,8 +260,8 @@ jobs:
             UPDATE_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/update_response.json -X PUT \
               "${{ secrets.PORTAINER_URL }}/api/stacks/$STACK_ID/git/redeploy?endpointId=${{ secrets.PORTAINER_ENDPOINT_ID }}" \
               -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
-          elif [ "$STACK_TYPE" == "1" ] || [ "$STACK_TYPE" == "docker-compose" ]; then
-            echo "🔄 Updating Docker Compose stack (file-based)..."
+          else
+            echo "🔄 Updating file-based stack..."
             
             # Get the compose file content
             STACK_COMPOSE_FILE=$(echo "$STACK_DETAILS" | jq -r '.StackFileContent')
@@ -259,25 +272,6 @@ jobs:
             echo ',"Prune":true}' >> /tmp/update_payload.json
             
             echo "📋 Payload prepared, updating stack..."
-            
-            # Update stack
-            UPDATE_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/update_response.json -X PUT \
-              "${{ secrets.PORTAINER_URL }}/api/stacks/$STACK_ID?endpointId=${{ secrets.PORTAINER_ENDPOINT_ID }}" \
-              -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}" \
-              -H "Content-Type: application/json" \
-              -d @/tmp/update_payload.json)
-          else
-            echo "🔄 Updating Docker Swarm stack (file-based)..."
-            
-            # For swarm stacks, we need different payload structure
-            STACK_COMPOSE_FILE=$(echo "$STACK_DETAILS" | jq -r '.StackFileContent')
-            
-            # Create temporary file for JSON payload
-            echo '{"StackFileContent":' > /tmp/update_payload.json
-            echo "$STACK_COMPOSE_FILE" | jq -R -s . >> /tmp/update_payload.json
-            echo ',"Prune":true}' >> /tmp/update_payload.json
-            
-            echo "📋 Payload prepared, updating swarm stack..."
             
             # Update stack
             UPDATE_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/update_response.json -X PUT \
@@ -306,7 +300,7 @@ jobs:
             STACK_ENV=$(echo "$STACK_DETAILS" | jq -r '.Env // []')
             
             # Check if it's a Git-based stack
-            if echo "$STACK_DETAILS" | jq -e '.GitConfig' > /dev/null; then
+            if [ "$STACK_METHOD" == "git" ]; then
               echo "🔄 Recreating Git-based stack..."
               
               # For Git-based stacks, we need to extract Git configuration
