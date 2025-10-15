@@ -1,0 +1,682 @@
+name: Auto Deploy with Portainer API
+
+on:
+  push:
+    branches:
+      - 'release/**'
+  workflow_dispatch:
+    inputs:
+      force_deploy:
+        description: 'Force deploy all services (ignore change detection)'
+        required: false
+        type: boolean
+        default: false
+      services:
+        description: 'Specific services to deploy (comma-separated)'
+        required: false
+        type: string
+        default: ''
+
+env:
+  DOCKER_REGISTRY: docker.io
+  DOCKER_USERNAME: devlee21
+
+jobs:
+  # Detect changes in services
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      # Service change flags
+      api-gateway-changed: ${{ steps.changes.outputs.api-gateway }}
+      secure-api-service-changed: ${{ steps.changes.outputs.secure-api-service }}
+      upload-service-changed: ${{ steps.changes.outputs.upload-service }}
+      crawler-worker-service-changed: ${{ steps.changes.outputs.crawler-worker-service }}
+      game-service-changed: ${{ steps.changes.outputs.game-service }}
+      admin-dashboard-changed: ${{ steps.changes.outputs.admin-dashboard }}
+      studio-sanity-changed: ${{ steps.changes.outputs.studio-sanity }}
+      minigames-fe-changed: ${{ steps.changes.outputs.minigames-fe }}
+      nextjs-changed: ${{ steps.changes.outputs.nextjs }}
+      
+      # Matrix for parallel builds
+      build-matrix: ${{ steps.set-matrix.outputs.build-matrix }}
+      deploy-matrix: ${{ steps.set-matrix.outputs.deploy-matrix }}
+      
+      # Action type
+      action-type: ${{ steps.set-matrix.outputs.action-type }}
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch full history for change detection
+
+      - name: Detect changes in services
+        id: changes
+        uses: dorny/paths-filter@v2
+        with:
+          base: ${{ github.event.before || 'HEAD~1' }}
+          filters: |
+            api-gateway:
+              - 'api_gateway/**'
+            secure-api-service:
+              - 'secure_api_service/**'
+            upload-service:
+              - 'upload_service/**'
+            crawler-worker-service:
+              - 'crawler_worker_service/**'
+            game-service:
+              - 'game_service/**'
+            admin-dashboard:
+              - 'admin-dashboard/**'
+            studio-sanity:
+              - 'studio-sanity/**'
+            minigames-fe:
+              - 'minigames_fe/**'
+            nextjs:
+              - 'nextjs/**'
+
+      - name: Set build and deploy matrix
+        id: set-matrix
+        run: |
+          # Initialize arrays
+          BUILD_SERVICES=()
+          DEPLOY_SERVICES=()
+          
+          # Check if this is a manual trigger with force deploy
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ "${{ github.event.inputs.force_deploy }}" == "true" ]; then
+            echo "🚀 Force deploy triggered - building all services"
+            BUILD_SERVICES=("api_gateway" "secure_api_service" "upload_service" "crawler_worker_service" "game_service" "admin-dashboard" "studio-sanity" "minigames_fe" "nextjs")
+            DEPLOY_SERVICES=("api_gateway" "secure_api_service" "upload_service" "crawler_worker_service" "game_service" "admin-dashboard" "studio-sanity" "minigames_fe" "nextjs")
+            echo "action-type=force_deploy" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ github.event.inputs.services }}" ]; then
+            echo "🎯 Manual deploy with specific services: ${{ github.event.inputs.services }}"
+            IFS=',' read -ra SERVICES <<< "${{ github.event.inputs.services }}"
+            for service in "${SERVICES[@]}"; do
+              service=$(echo "$service" | xargs) # trim whitespace
+              BUILD_SERVICES+=("$service")
+              DEPLOY_SERVICES+=("$service")
+            done
+            echo "action-type=manual_deploy" >> $GITHUB_OUTPUT
+          else
+            echo "🔍 Auto trigger - checking for service changes..."
+            echo "action-type=auto_deploy" >> $GITHUB_OUTPUT
+            
+            # Check each service for changes
+            if [ "${{ steps.changes.outputs.api-gateway }}" == "true" ]; then
+              echo "  ✅ API Gateway changed"
+              BUILD_SERVICES+=("api_gateway")
+              DEPLOY_SERVICES+=("api_gateway")
+            fi
+            
+            if [ "${{ steps.changes.outputs.secure-api-service }}" == "true" ]; then
+              echo "  ✅ Secure API Service changed"
+              BUILD_SERVICES+=("secure_api_service")
+              DEPLOY_SERVICES+=("secure_api_service")
+            fi
+            
+            if [ "${{ steps.changes.outputs.upload-service }}" == "true" ]; then
+              echo "  ✅ Upload Service changed"
+              BUILD_SERVICES+=("upload_service")
+              DEPLOY_SERVICES+=("upload_service")
+            fi
+            
+            if [ "${{ steps.changes.outputs.crawler-worker-service }}" == "true" ]; then
+              echo "  ✅ Crawler Worker Service changed"
+              BUILD_SERVICES+=("crawler_worker_service")
+              DEPLOY_SERVICES+=("crawler_worker_service")
+            fi
+            
+            if [ "${{ steps.changes.outputs.game-service }}" == "true" ]; then
+              echo "  ✅ Game Service changed"
+              BUILD_SERVICES+=("game_service")
+              DEPLOY_SERVICES+=("game_service")
+            fi
+            
+            if [ "${{ steps.changes.outputs.admin-dashboard }}" == "true" ]; then
+              echo "  ✅ Admin Dashboard changed"
+              BUILD_SERVICES+=("admin-dashboard")
+              DEPLOY_SERVICES+=("admin-dashboard")
+            fi
+            
+            if [ "${{ steps.changes.outputs.studio-sanity }}" == "true" ]; then
+              echo "  ✅ Studio Sanity changed"
+              BUILD_SERVICES+=("studio-sanity")
+              DEPLOY_SERVICES+=("studio-sanity")
+            fi
+            
+            if [ "${{ steps.changes.outputs.minigames-fe }}" == "true" ]; then
+              echo "  ✅ Minigames FE changed"
+              BUILD_SERVICES+=("minigames_fe")
+              DEPLOY_SERVICES+=("minigames_fe")
+            fi
+            
+            if [ "${{ steps.changes.outputs.nextjs }}" == "true" ]; then
+              echo "  ✅ NextJS changed"
+              BUILD_SERVICES+=("nextjs")
+              DEPLOY_SERVICES+=("nextjs")
+            fi
+          fi
+          
+          echo "📋 Services to build: ${BUILD_SERVICES[*]}"
+          echo "📋 Services to deploy: ${DEPLOY_SERVICES[*]}"
+          
+          # Convert arrays to JSON matrices
+          if [ ${#BUILD_SERVICES[@]} -eq 0 ]; then
+            echo "build-matrix=[]" >> $GITHUB_OUTPUT
+            echo "deploy-matrix=[]" >> $GITHUB_OUTPUT
+            echo "⚠️ No services to build or deploy"
+          else
+            # Build matrix
+            BUILD_JSON="["
+            for i in "${!BUILD_SERVICES[@]}"; do
+              if [ $i -gt 0 ]; then
+                BUILD_JSON+=","
+              fi
+              BUILD_JSON+="\"${BUILD_SERVICES[$i]}\""
+            done
+            BUILD_JSON+="]"
+            echo "build-matrix=$BUILD_JSON" >> $GITHUB_OUTPUT
+            
+            # Deploy matrix
+            DEPLOY_JSON="["
+            for i in "${!DEPLOY_SERVICES[@]}"; do
+              if [ $i -gt 0 ]; then
+                DEPLOY_JSON+=","
+              fi
+              DEPLOY_JSON+="\"${DEPLOY_SERVICES[$i]}\""
+            done
+            DEPLOY_JSON+="]"
+            echo "deploy-matrix=$DEPLOY_JSON" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Show change detection results
+        run: |
+          echo "### 🔍 Change Detection Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Trigger:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Service Changes:**" >> $GITHUB_STEP_SUMMARY
+          echo "- API Gateway: ${{ steps.changes.outputs.api-gateway }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Secure API Service: ${{ steps.changes.outputs.secure-api-service }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Upload Service: ${{ steps.changes.outputs.upload-service }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Crawler Worker Service: ${{ steps.changes.outputs.crawler-worker-service }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Game Service: ${{ steps.changes.outputs.game-service }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Admin Dashboard: ${{ steps.changes.outputs.admin-dashboard }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Studio Sanity: ${{ steps.changes.outputs.studio-sanity }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Minigames FE: ${{ steps.changes.outputs.minigames-fe }}" >> $GITHUB_STEP_SUMMARY
+          echo "- NextJS: ${{ steps.changes.outputs.nextjs }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Action Type:** ${{ steps.set-matrix.outputs.action-type }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Services to Build:** ${{ steps.set-matrix.outputs.build-matrix }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Services to Deploy:** ${{ steps.set-matrix.outputs.deploy-matrix }}" >> $GITHUB_STEP_SUMMARY
+
+  # Build and push Docker images
+  build-and-push:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.build-matrix != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: ${{ fromJSON(needs.detect-changes.outputs.build-matrix) }}
+      fail-fast: false
+      max-parallel: 3
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set service configuration
+        id: config
+        run: |
+          case "${{ matrix.service }}" in
+            api_gateway)
+              echo "dockerfile_path=./api_gateway" >> $GITHUB_OUTPUT
+              echo "image_name=devlee21/api_gateway" >> $GITHUB_OUTPUT
+              echo "container_name=api_gateway" >> $GITHUB_OUTPUT
+              echo "service_port=3000" >> $GITHUB_OUTPUT
+              ;;
+            secure_api_service)
+              echo "dockerfile_path=./secure_api_service" >> $GITHUB_OUTPUT
+              echo "image_name=devlee21/secure_api_service" >> $GITHUB_OUTPUT
+              echo "container_name=secure_api_service" >> $GITHUB_OUTPUT
+              echo "service_port=3001" >> $GITHUB_OUTPUT
+              ;;
+            upload_service)
+              echo "dockerfile_path=./upload_service" >> $GITHUB_OUTPUT
+              echo "image_name=devlee21/upload_service" >> $GITHUB_OUTPUT
+              echo "container_name=upload_service" >> $GITHUB_OUTPUT
+              echo "service_port=3002" >> $GITHUB_OUTPUT
+              ;;
+            crawler_worker_service)
+              echo "dockerfile_path=./crawler_worker_service" >> $GITHUB_OUTPUT
+              echo "image_name=devlee21/crawler_worker_service" >> $GITHUB_OUTPUT
+              echo "container_name=crawler_worker_service" >> $GITHUB_OUTPUT
+              echo "service_port=3004" >> $GITHUB_OUTPUT
+              ;;
+            game_service)
+              echo "dockerfile_path=./game_service" >> $GITHUB_OUTPUT
+              echo "image_name=devlee21/game_service" >> $GITHUB_OUTPUT
+              echo "container_name=game_service" >> $GITHUB_OUTPUT
+              echo "service_port=3009" >> $GITHUB_OUTPUT
+              ;;
+            admin-dashboard)
+              echo "dockerfile_path=./admin-dashboard" >> $GITHUB_OUTPUT
+              echo "image_name=devlee21/admin-dashboard" >> $GITHUB_OUTPUT
+              echo "container_name=admin_dashboard" >> $GITHUB_OUTPUT
+              echo "service_port=3006" >> $GITHUB_OUTPUT
+              ;;
+            studio-sanity)
+              echo "dockerfile_path=./studio-sanity" >> $GITHUB_OUTPUT
+              echo "image_name=devlee21/studio_sanity" >> $GITHUB_OUTPUT
+              echo "container_name=studio_sanity" >> $GITHUB_OUTPUT
+              echo "service_port=3333" >> $GITHUB_OUTPUT
+              ;;
+            minigames_fe)
+              echo "dockerfile_path=./minigames_fe" >> $GITHUB_OUTPUT
+              echo "image_name=devlee21/minigames_fe" >> $GITHUB_OUTPUT
+              echo "container_name=minigames_fe" >> $GITHUB_OUTPUT
+              echo "service_port=3007" >> $GITHUB_OUTPUT
+              ;;
+            nextjs)
+              echo "dockerfile_path=./nextjs" >> $GITHUB_OUTPUT
+              echo "image_name=devlee21/nextjs" >> $GITHUB_OUTPUT
+              echo "container_name=nextjs" >> $GITHUB_OUTPUT
+              echo "service_port=3008" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "❌ Unknown service: ${{ matrix.service }}"
+              exit 1
+              ;;
+          esac
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.config.outputs.image_name }}
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=${{ github.ref_name }}-
+            type=ref,event=branch
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ steps.config.outputs.dockerfile_path }}
+          file: ${{ steps.config.outputs.dockerfile_path }}/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ steps.config.outputs.image_name }}:buildcache
+          cache-to: type=registry,ref=${{ steps.config.outputs.image_name }}:buildcache,mode=max
+          platforms: linux/amd64,linux/arm64
+
+      - name: Wait for Docker Hub propagation
+        run: sleep 15
+
+      - name: Build summary
+        run: |
+          echo "### ✅ Build Successful" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Service:** ${{ matrix.service }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** ${{ steps.config.outputs.image_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Tags:** ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Container:** ${{ steps.config.outputs.container_name }}" >> $GITHUB_STEP_SUMMARY
+
+  # Skip build notification
+  skip-build:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.build-matrix == '[]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip build notification
+        run: |
+          echo "### ⏭️ Build Skipped" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "No service changes detected - skipping build and deployment" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "ℹ️ Only workflow files or other non-service files were changed." >> $GITHUB_STEP_SUMMARY
+
+  # Deploy using Portainer API
+  deploy-with-portainer:
+    needs: [detect-changes, build-and-push]
+    if: |
+      always() && 
+      needs.detect-changes.outputs.deploy-matrix != '[]' &&
+      (needs.detect-changes.result == 'success')
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq curl
+
+      - name: Deploy services with Portainer API
+        id: deploy
+        run: |
+          set -e
+          
+          echo "🚀 Starting Portainer deployment..."
+          echo "Endpoint ID: ${{ secrets.PORTAINER_ENDPOINT_ID }}"
+          echo "Services to deploy: ${{ needs.detect-changes.outputs.deploy-matrix }}"
+          
+          # Get list of containers
+          echo "📋 Getting containers list..."
+          CONTAINERS_JSON=$(curl -s -X GET \
+            "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/json?all=true" \
+            -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
+          
+          if [ -z "$CONTAINERS_JSON" ] || [ "$CONTAINERS_JSON" == "null" ]; then
+            echo "❌ Failed to get containers list!"
+            exit 1
+          fi
+          
+          echo "✅ Containers list retrieved successfully"
+          
+          # Parse services to deploy
+          SERVICES_TO_DEPLOY="${{ needs.detect-changes.outputs.deploy-matrix }}"
+          echo "📦 Services to deploy: $SERVICES_TO_DEPLOY"
+          
+          if [ "$SERVICES_TO_DEPLOY" == "[]" ] || [ -z "$SERVICES_TO_DEPLOY" ]; then
+            echo "ℹ️ No services to deploy"
+            exit 0
+          fi
+          
+          # Deploy each service
+          DEPLOYMENT_RESULTS=()
+          for service in $(echo "$SERVICES_TO_DEPLOY" | jq -r '.[]'); do
+            echo ""
+            echo "🔄 Processing service: $service"
+            
+            # Set service configuration
+            case "$service" in
+              api_gateway)
+                CONTAINER_PATTERN="api_gateway"
+                IMAGE_NAME="devlee21/api_gateway:latest"
+                SERVICE_PORT="3000"
+                ;;
+              secure_api_service)
+                CONTAINER_PATTERN="secure_api_service"
+                IMAGE_NAME="devlee21/secure_api_service:latest"
+                SERVICE_PORT="3001"
+                ;;
+              upload_service)
+                CONTAINER_PATTERN="upload_service"
+                IMAGE_NAME="devlee21/upload_service:latest"
+                SERVICE_PORT="3002"
+                ;;
+              crawler_worker_service)
+                CONTAINER_PATTERN="crawler_worker_service"
+                IMAGE_NAME="devlee21/crawler_worker_service:latest"
+                SERVICE_PORT="3004"
+                ;;
+              game_service)
+                CONTAINER_PATTERN="game_service"
+                IMAGE_NAME="devlee21/game_service:latest"
+                SERVICE_PORT="3009"
+                ;;
+              admin-dashboard)
+                CONTAINER_PATTERN="admin_dashboard"
+                IMAGE_NAME="devlee21/admin-dashboard:latest"
+                SERVICE_PORT="3006"
+                ;;
+              studio-sanity)
+                CONTAINER_PATTERN="studio_sanity"
+                IMAGE_NAME="devlee21/studio_sanity:latest"
+                SERVICE_PORT="3333"
+                ;;
+              minigames_fe)
+                CONTAINER_PATTERN="minigames_fe"
+                IMAGE_NAME="devlee21/minigames_fe:latest"
+                SERVICE_PORT="3007"
+                ;;
+              nextjs)
+                CONTAINER_PATTERN="nextjs"
+                IMAGE_NAME="devlee21/nextjs:latest"
+                SERVICE_PORT="3008"
+                ;;
+              *)
+                echo "⚠️ Unknown service: $service"
+                DEPLOYMENT_RESULTS+=("$service:SKIPPED")
+                continue
+                ;;
+            esac
+            
+            echo "🔍 Looking for container: $CONTAINER_PATTERN"
+            
+            # Find container
+            CONTAINER_ID=$(echo "$CONTAINERS_JSON" | jq -r ".[] | select(.Names[] | contains(\"$CONTAINER_PATTERN\")) | .Id")
+            
+            if [ -z "$CONTAINER_ID" ] || [ "$CONTAINER_ID" == "null" ]; then
+              echo "⚠️ Container for $service not found (pattern: $CONTAINER_PATTERN)"
+              echo "Available containers:"
+              echo "$CONTAINERS_JSON" | jq -r '.[] | .Names[]' | head -10
+              DEPLOYMENT_RESULTS+=("$service:NOT_FOUND")
+              continue
+            fi
+            
+            echo "✅ Found container: $CONTAINER_ID"
+            
+            # Get container details for rollback
+            CONTAINER_DETAILS=$(curl -s -X GET \
+              "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/$CONTAINER_ID/json" \
+              -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
+            
+            # Pull latest image
+            echo "🔄 Pulling latest image: $IMAGE_NAME"
+            PULL_CODE=$(curl -s -o /tmp/pull_response.json -w "%{http_code}" -X POST \
+              "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/images/create?fromImage=$IMAGE_NAME" \
+              -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
+            
+            if [ "$PULL_CODE" -ge 200 ] && [ "$PULL_CODE" -lt 300 ]; then
+              echo "✅ Latest image pulled successfully"
+            else
+              echo "⚠️ Failed to pull image (HTTP: $PULL_CODE), but continuing..."
+            fi
+            
+            # Stop container gracefully
+            echo "🛑 Stopping container gracefully..."
+            STOP_CODE=$(curl -s -o /tmp/stop_response.json -w "%{http_code}" -X POST \
+              "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/$CONTAINER_ID/stop?t=30" \
+              -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
+            
+            if [ "$STOP_CODE" -ge 200 ] && [ "$STOP_CODE" -lt 300 ]; then
+              echo "✅ Container stopped successfully"
+            else
+              echo "⚠️ Container stop response: $STOP_CODE (may already be stopped)"
+            fi
+            
+            # Wait a moment for graceful shutdown
+            sleep 5
+            
+            # Remove container
+            echo "🗑️ Removing container..."
+            REMOVE_CODE=$(curl -s -o /tmp/remove_response.json -w "%{http_code}" -X DELETE \
+              "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/$CONTAINER_ID" \
+              -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
+            
+            if [ "$REMOVE_CODE" -ge 200 ] && [ "$REMOVE_CODE" -lt 300 ]; then
+              echo "✅ Container removed successfully"
+            else
+              echo "⚠️ Container remove response: $REMOVE_CODE"
+            fi
+            
+            # Wait for container to be fully removed
+            sleep 3
+            
+            # The container will be recreated automatically by docker-compose restart policy
+            echo "🚀 Container $service will be recreated automatically by docker-compose"
+            
+            # Wait for container to be recreated and healthy
+            echo "⏳ Waiting for container to be recreated and healthy..."
+            MAX_WAIT=120
+            WAIT_COUNT=0
+            
+            while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
+              # Check if new container exists
+              NEW_CONTAINERS_JSON=$(curl -s -X GET \
+                "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/json?all=true" \
+                -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
+              
+              NEW_CONTAINER_ID=$(echo "$NEW_CONTAINERS_JSON" | jq -r ".[] | select(.Names[] | contains(\"$CONTAINER_PATTERN\")) | .Id")
+              
+              if [ -n "$NEW_CONTAINER_ID" ] && [ "$NEW_CONTAINER_ID" != "null" ]; then
+                # Check if container is running
+                CONTAINER_STATE=$(echo "$NEW_CONTAINERS_JSON" | jq -r ".[] | select(.Id == \"$NEW_CONTAINER_ID\") | .State")
+                if [ "$CONTAINER_STATE" == "running" ]; then
+                  echo "✅ Container $service is running successfully"
+                  DEPLOYMENT_RESULTS+=("$service:SUCCESS")
+                  break
+                else
+                  echo "⏳ Container $service is $CONTAINER_STATE, waiting..."
+                fi
+              else
+                echo "⏳ Container $service not yet recreated, waiting..."
+              fi
+              
+              sleep 5
+              WAIT_COUNT=$((WAIT_COUNT + 5))
+            done
+            
+            if [ $WAIT_COUNT -ge $MAX_WAIT ]; then
+              echo "❌ Timeout waiting for container $service to be healthy"
+              DEPLOYMENT_RESULTS+=("$service:TIMEOUT")
+            fi
+          done
+          
+          echo ""
+          echo "🎉 Deployment completed!"
+          echo "📊 Results:"
+          for result in "${DEPLOYMENT_RESULTS[@]}"; do
+            echo "  - $result"
+          done
+          
+          # Set output for summary
+          echo "deployment_results=${DEPLOYMENT_RESULTS[*]}" >> $GITHUB_OUTPUT
+
+      - name: Deployment summary
+        if: success()
+        run: |
+          echo "### 🎉 Deployment Successful" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Stack:** vaoluoi" >> $GITHUB_STEP_SUMMARY
+          echo "**Services deployed:** ${{ needs.detect-changes.outputs.deploy-matrix }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Action type:** ${{ needs.detect-changes.outputs.action-type }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Deployment Results:**" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.deploy.outputs.deployment_results }}" >> $GITHUB_STEP_SUMMARY
+          
+      - name: Deployment failed summary
+        if: failure()
+        run: |
+          echo "### ❌ Deployment Failed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Please check the logs for more details." >> $GITHUB_STEP_SUMMARY
+          echo "**Services attempted:** ${{ needs.detect-changes.outputs.deploy-matrix }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+
+  # Health check after deployment
+  health-check:
+    needs: [detect-changes, deploy-with-portainer]
+    if: |
+      always() && 
+      needs.detect-changes.outputs.deploy-matrix != '[]' &&
+      (needs.deploy-with-portainer.result == 'success')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq curl
+
+      - name: Health check services
+        run: |
+          echo "🏥 Starting health checks..."
+          
+          SERVICES_TO_CHECK="${{ needs.detect-changes.outputs.deploy-matrix }}"
+          
+          for service in $(echo "$SERVICES_TO_CHECK" | jq -r '.[]'); do
+            echo ""
+            echo "🔍 Health checking: $service"
+            
+            case "$service" in
+              api_gateway)
+                HEALTH_URL="https://api.vaoluoitv.com/api/v1/health"
+                ;;
+              secure_api_service)
+                HEALTH_URL="https://security-api.vaoluoitv.com/api/v1/health"
+                ;;
+              upload_service)
+                HEALTH_URL="https://api.vaoluoitv.com/api/v1/upload/health"
+                ;;
+              crawler_worker_service)
+                HEALTH_URL="https://sync-api.vaoluoitv.com/api/v1/sync/health"
+                ;;
+              game_service)
+                HEALTH_URL="https://games-api.vaoluoitv.com/health"
+                ;;
+              admin-dashboard)
+                HEALTH_URL="https://admin.vaoluoitv.com"
+                ;;
+              *)
+                echo "⚠️ No health check URL configured for $service"
+                continue
+                ;;
+            esac
+            
+            echo "🔗 Checking: $HEALTH_URL"
+            
+            # Try health check with retries
+            MAX_RETRIES=5
+            RETRY_COUNT=0
+            
+            while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$HEALTH_URL" || echo "000")
+              
+              if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 400 ]; then
+                echo "✅ $service is healthy (HTTP: $HTTP_CODE)"
+                break
+              else
+                echo "⏳ $service health check failed (HTTP: $HTTP_CODE), retrying..."
+                RETRY_COUNT=$((RETRY_COUNT + 1))
+                sleep 10
+              fi
+            done
+            
+            if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+              echo "❌ $service health check failed after $MAX_RETRIES retries"
+            fi
+          done
+          
+          echo ""
+          echo "🏥 Health checks completed!"
+
+      - name: Health check summary
+        run: |
+          echo "### 🏥 Health Check Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Health checks have been performed on all deployed services." >> $GITHUB_STEP_SUMMARY
+          echo "Check the logs above for detailed results." >> $GITHUB_STEP_SUMMARY
