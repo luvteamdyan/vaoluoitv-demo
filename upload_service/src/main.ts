@@ -5,7 +5,7 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const port = process.env.PORT || 3002;
 
-
+  console.log(`PORT: ${port}`);
   // Create microservice application
   const app = await NestFactory.createMicroservice<MicroserviceOptions>(
     AppModule,
