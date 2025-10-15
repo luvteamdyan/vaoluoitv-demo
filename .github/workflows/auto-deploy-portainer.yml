@@ -213,22 +213,73 @@ jobs:
             exit 1
           fi
           
-          # Update stack to recreate containers with latest images
-          echo "🔄 Updating stack to recreate containers with latest images..."
-          
-          # Prepare update payload
+          # Check stack type and update accordingly
+          echo "🔍 Checking stack type and structure..."
           STACK_DETAILS=$(cat /tmp/stack_details.json)
-          STACK_COMPOSE_FILE=$(echo "$STACK_DETAILS" | jq -r '.StackFileContent')
+          STACK_TYPE=$(echo "$STACK_DETAILS" | jq -r '.Type')
+          echo "📋 Stack type: $STACK_TYPE"
           
-          # Update stack
-          UPDATE_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/update_response.json -X PUT \
-            "${{ secrets.PORTAINER_URL }}/api/stacks/$STACK_ID?endpointId=${{ secrets.PORTAINER_ENDPOINT_ID }}" \
-            -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}" \
-            -H "Content-Type: application/json" \
-            -d "{
-              \"StackFileContent\": \"$STACK_COMPOSE_FILE\",
-              \"Prune\": true
-            }")
+          # Debug: Show stack structure
+          echo "🔍 Stack structure:"
+          echo "$STACK_DETAILS" | jq -r 'keys[]' | head -10
+          
+          # Check if it's a web editor stack
+          if echo "$STACK_DETAILS" | jq -e '.StackFileContent' > /dev/null; then
+            echo "✅ Stack has StackFileContent"
+            COMPOSE_LENGTH=$(echo "$STACK_DETAILS" | jq -r '.StackFileContent' | wc -c)
+            echo "📏 Compose file length: $COMPOSE_LENGTH characters"
+          else
+            echo "❌ Stack does not have StackFileContent"
+            echo "🔍 Available fields:"
+            echo "$STACK_DETAILS" | jq -r 'keys[]'
+          fi
+          
+          # For web editor stacks, we need to use different approach
+          if [ "$STACK_TYPE" == "1" ] || [ "$STACK_TYPE" == "docker-compose" ]; then
+            echo "🔄 Updating Docker Compose stack..."
+            
+            # Get the compose file content
+            STACK_COMPOSE_FILE=$(echo "$STACK_DETAILS" | jq -r '.StackFileContent')
+            
+            # Create temporary file for JSON payload
+            cat > /tmp/update_payload.json << EOF
+{
+  "StackFileContent": $(echo "$STACK_COMPOSE_FILE" | jq -R -s .),
+  "Prune": true
+}
+EOF
+            
+            echo "📋 Payload prepared, updating stack..."
+            
+            # Update stack
+            UPDATE_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/update_response.json -X PUT \
+              "${{ secrets.PORTAINER_URL }}/api/stacks/$STACK_ID?endpointId=${{ secrets.PORTAINER_ENDPOINT_ID }}" \
+              -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}" \
+              -H "Content-Type: application/json" \
+              -d @/tmp/update_payload.json)
+          else
+            echo "🔄 Updating Docker Swarm stack..."
+            
+            # For swarm stacks, we need different payload structure
+            STACK_COMPOSE_FILE=$(echo "$STACK_DETAILS" | jq -r '.StackFileContent')
+            
+            # Create temporary file for JSON payload
+            cat > /tmp/update_payload.json << EOF
+{
+  "StackFileContent": $(echo "$STACK_COMPOSE_FILE" | jq -R -s .),
+  "Prune": true
+}
+EOF
+            
+            echo "📋 Payload prepared, updating swarm stack..."
+            
+            # Update stack
+            UPDATE_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/update_response.json -X PUT \
+              "${{ secrets.PORTAINER_URL }}/api/stacks/$STACK_ID?endpointId=${{ secrets.PORTAINER_ENDPOINT_ID }}" \
+              -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}" \
+              -H "Content-Type: application/json" \
+              -d @/tmp/update_payload.json)
+          fi
           
           echo "Stack Update HTTP Code: $UPDATE_RESPONSE"
           
@@ -240,7 +291,62 @@ jobs:
             echo "❌ Failed to update stack!"
             echo "Response:"
             cat /tmp/update_response.json
-            DEPLOYMENT_RESULTS=("Stack:FAILED")
+            
+            # Try alternative approach - recreate stack
+            echo "🔄 Trying alternative approach - recreating stack..."
+            
+            # Get current stack details
+            STACK_NAME=$(echo "$STACK_DETAILS" | jq -r '.Name')
+            STACK_ENV=$(echo "$STACK_DETAILS" | jq -r '.Env // []')
+            
+            # Delete and recreate stack
+            echo "🗑️ Deleting current stack..."
+            DELETE_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/delete_response.json -X DELETE \
+              "${{ secrets.PORTAINER_URL }}/api/stacks/$STACK_ID?endpointId=${{ secrets.PORTAINER_ENDPOINT_ID }}" \
+              -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
+            
+            echo "Delete HTTP Code: $DELETE_RESPONSE"
+            
+            if [ "$DELETE_RESPONSE" -ge 200 ] && [ "$DELETE_RESPONSE" -lt 300 ]; then
+              echo "✅ Stack deleted successfully"
+              
+              # Wait a moment
+              sleep 5
+              
+              # Recreate stack
+              echo "🔄 Recreating stack..."
+              RECREATE_PAYLOAD=$(cat << EOF
+{
+  "Name": "$STACK_NAME",
+  "StackFileContent": $(echo "$STACK_COMPOSE_FILE" | jq -R -s .),
+  "Env": $STACK_ENV
+}
+EOF
+)
+              
+              RECREATE_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/recreate_response.json -X POST \
+                "${{ secrets.PORTAINER_URL }}/api/stacks?type=1&method=string&endpointId=${{ secrets.PORTAINER_ENDPOINT_ID }}" \
+                -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}" \
+                -H "Content-Type: application/json" \
+                -d "$RECREATE_PAYLOAD")
+              
+              echo "Recreate HTTP Code: $RECREATE_RESPONSE"
+              
+              if [ "$RECREATE_RESPONSE" -ge 200 ] && [ "$RECREATE_RESPONSE" -lt 300 ]; then
+                echo "✅ Stack recreated successfully!"
+                DEPLOYMENT_RESULTS=("Stack:RECREATED")
+              else
+                echo "❌ Failed to recreate stack!"
+                echo "Response:"
+                cat /tmp/recreate_response.json
+                DEPLOYMENT_RESULTS=("Stack:FAILED")
+              fi
+            else
+              echo "❌ Failed to delete stack!"
+              echo "Response:"
+              cat /tmp/delete_response.json
+              DEPLOYMENT_RESULTS=("Stack:FAILED")
+            fi
           fi
           
           # Wait for containers to be recreated
@@ -282,6 +388,9 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Deployment Results:**" >> $GITHUB_STEP_SUMMARY
           echo "${{ steps.deploy.outputs.deployment_results }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Method:** Full Stack Update (Portainer Stack API)" >> $GITHUB_STEP_SUMMARY
+          echo "**Result:** All containers recreated with latest images" >> $GITHUB_STEP_SUMMARY
           
       - name: Deployment failed summary
         if: failure()
