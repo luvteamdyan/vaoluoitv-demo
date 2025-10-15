@@ -50,6 +50,9 @@ jobs:
         with:
           fetch-depth: 0  # Fetch full history for change detection
 
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
       - name: Detect changes in services
         id: changes
         uses: dorny/paths-filter@v2
@@ -160,34 +163,20 @@ jobs:
           echo "📋 Services to build: ${BUILD_SERVICES[*]}"
           echo "📋 Services to deploy: ${DEPLOY_SERVICES[*]}"
           
-          # Convert arrays to JSON matrices
-          if [ ${#BUILD_SERVICES[@]} -eq 0 ]; then
-            echo "build-matrix=[]" >> $GITHUB_OUTPUT
-            echo "deploy-matrix=[]" >> $GITHUB_OUTPUT
-            echo "⚠️ No services to build or deploy"
-          else
-            # Build matrix
-            BUILD_JSON="["
-            for i in "${!BUILD_SERVICES[@]}"; do
-              if [ $i -gt 0 ]; then
-                BUILD_JSON+=","
-              fi
-              BUILD_JSON+="\"${BUILD_SERVICES[$i]}\""
-            done
-            BUILD_JSON+="]"
-            echo "build-matrix=$BUILD_JSON" >> $GITHUB_OUTPUT
-            
-            # Deploy matrix
-            DEPLOY_JSON="["
-            for i in "${!DEPLOY_SERVICES[@]}"; do
-              if [ $i -gt 0 ]; then
-                DEPLOY_JSON+=","
-              fi
-              DEPLOY_JSON+="\"${DEPLOY_SERVICES[$i]}\""
-            done
-            DEPLOY_JSON+="]"
-            echo "deploy-matrix=$DEPLOY_JSON" >> $GITHUB_OUTPUT
-          fi
+            # Convert arrays to JSON matrices
+            if [ ${#BUILD_SERVICES[@]} -eq 0 ]; then
+              echo "build-matrix=[]" >> $GITHUB_OUTPUT
+              echo "deploy-matrix=[]" >> $GITHUB_OUTPUT
+              echo "⚠️ No services to build or deploy"
+            else
+              # Build matrix using jq for proper JSON formatting
+              BUILD_JSON=$(printf '%s\n' "${BUILD_SERVICES[@]}" | jq -R . | jq -s .)
+              echo "build-matrix=$BUILD_JSON" >> $GITHUB_OUTPUT
+              
+              # Deploy matrix using jq for proper JSON formatting
+              DEPLOY_JSON=$(printf '%s\n' "${DEPLOY_SERVICES[@]}" | jq -R . | jq -s .)
+              echo "deploy-matrix=$DEPLOY_JSON" >> $GITHUB_OUTPUT
+            fi
 
       - name: Show change detection results
         run: |
@@ -312,7 +301,17 @@ jobs:
           # Validate JSON format
           if ! echo "$SERVICES_TO_DEPLOY" | jq empty 2>/dev/null; then
             echo "❌ Invalid JSON format for services to deploy: $SERVICES_TO_DEPLOY"
-            exit 1
+            echo "🔧 Attempting to fix JSON format..."
+            # Try to fix common JSON issues
+            FIXED_JSON=$(echo "$SERVICES_TO_DEPLOY" | sed 's/\[\([^]]*\)\]/["\1"]/g' | sed 's/,/","/g')
+            echo "🔧 Fixed JSON: $FIXED_JSON"
+            if echo "$FIXED_JSON" | jq empty 2>/dev/null; then
+              echo "✅ JSON format fixed successfully"
+              SERVICES_TO_DEPLOY="$FIXED_JSON"
+            else
+              echo "❌ Could not fix JSON format, exiting"
+              exit 1
+            fi
           fi
           
           # Deploy each service
@@ -324,47 +323,47 @@ jobs:
             # Set service configuration
             case "$service" in
               api_gateway)
-                CONTAINER_PATTERN="api_gateway"
+                CONTAINER_PATTERN="api_gateway-prod"
                 IMAGE_NAME="devlee21/api_gateway:latest"
                 SERVICE_PORT="3000"
                 ;;
               secure_api_service)
-                CONTAINER_PATTERN="secure_api_service"
+                CONTAINER_PATTERN="secure_api_service-prod"
                 IMAGE_NAME="devlee21/secure_api_service:latest"
                 SERVICE_PORT="3001"
                 ;;
               upload_service)
-                CONTAINER_PATTERN="upload_service"
+                CONTAINER_PATTERN="upload_service-prod"
                 IMAGE_NAME="devlee21/upload_service:latest"
                 SERVICE_PORT="3002"
                 ;;
               crawler_worker_service)
-                CONTAINER_PATTERN="crawler_worker_service"
+                CONTAINER_PATTERN="crawler_worker_service-prod"
                 IMAGE_NAME="devlee21/crawler_worker_service:latest"
                 SERVICE_PORT="3004"
                 ;;
               game_service)
-                CONTAINER_PATTERN="game_service"
+                CONTAINER_PATTERN="game_service-prod"
                 IMAGE_NAME="devlee21/game_service:latest"
                 SERVICE_PORT="3009"
                 ;;
               admin-dashboard)
-                CONTAINER_PATTERN="admin_dashboard"
+                CONTAINER_PATTERN="admin_dashboard-prod"
                 IMAGE_NAME="devlee21/admin-dashboard:latest"
                 SERVICE_PORT="3006"
                 ;;
               studio-sanity)
-                CONTAINER_PATTERN="studio_sanity"
+                CONTAINER_PATTERN="studio_sanity-prod"
                 IMAGE_NAME="devlee21/studio_sanity:latest"
                 SERVICE_PORT="3333"
                 ;;
               minigames_fe)
-                CONTAINER_PATTERN="minigames_fe"
+                CONTAINER_PATTERN="minigames_fe-prod"
                 IMAGE_NAME="devlee21/minigames_fe:latest"
                 SERVICE_PORT="3007"
                 ;;
               nextjs)
-                CONTAINER_PATTERN="nextjs"
+                CONTAINER_PATTERN="nextjs-prod"
                 IMAGE_NAME="devlee21/nextjs:latest"
                 SERVICE_PORT="3008"
                 ;;
