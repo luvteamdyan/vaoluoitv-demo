@@ -212,148 +212,23 @@ jobs:
           echo "**Services to Build:** ${{ steps.set-matrix.outputs.build-matrix }}" >> $GITHUB_STEP_SUMMARY
           echo "**Services to Deploy:** ${{ steps.set-matrix.outputs.deploy-matrix }}" >> $GITHUB_STEP_SUMMARY
 
-  # Build and push Docker images
-  build-and-push:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.build-matrix != '[]'
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        service: ${{ fromJSON(needs.detect-changes.outputs.build-matrix) }}
-      fail-fast: false
-      max-parallel: 3
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set service configuration
-        id: config
-        run: |
-          case "${{ matrix.service }}" in
-            api_gateway)
-              echo "dockerfile_path=./api_gateway" >> $GITHUB_OUTPUT
-              echo "image_name=devlee21/api_gateway" >> $GITHUB_OUTPUT
-              echo "container_name=api_gateway" >> $GITHUB_OUTPUT
-              echo "service_port=3000" >> $GITHUB_OUTPUT
-              ;;
-            secure_api_service)
-              echo "dockerfile_path=./secure_api_service" >> $GITHUB_OUTPUT
-              echo "image_name=devlee21/secure_api_service" >> $GITHUB_OUTPUT
-              echo "container_name=secure_api_service" >> $GITHUB_OUTPUT
-              echo "service_port=3001" >> $GITHUB_OUTPUT
-              ;;
-            upload_service)
-              echo "dockerfile_path=./upload_service" >> $GITHUB_OUTPUT
-              echo "image_name=devlee21/upload_service" >> $GITHUB_OUTPUT
-              echo "container_name=upload_service" >> $GITHUB_OUTPUT
-              echo "service_port=3002" >> $GITHUB_OUTPUT
-              ;;
-            crawler_worker_service)
-              echo "dockerfile_path=./crawler_worker_service" >> $GITHUB_OUTPUT
-              echo "image_name=devlee21/crawler_worker_service" >> $GITHUB_OUTPUT
-              echo "container_name=crawler_worker_service" >> $GITHUB_OUTPUT
-              echo "service_port=3004" >> $GITHUB_OUTPUT
-              ;;
-            game_service)
-              echo "dockerfile_path=./game_service" >> $GITHUB_OUTPUT
-              echo "image_name=devlee21/game_service" >> $GITHUB_OUTPUT
-              echo "container_name=game_service" >> $GITHUB_OUTPUT
-              echo "service_port=3009" >> $GITHUB_OUTPUT
-              ;;
-            admin-dashboard)
-              echo "dockerfile_path=./admin-dashboard" >> $GITHUB_OUTPUT
-              echo "image_name=devlee21/admin-dashboard" >> $GITHUB_OUTPUT
-              echo "container_name=admin_dashboard" >> $GITHUB_OUTPUT
-              echo "service_port=3006" >> $GITHUB_OUTPUT
-              ;;
-            studio-sanity)
-              echo "dockerfile_path=./studio-sanity" >> $GITHUB_OUTPUT
-              echo "image_name=devlee21/studio_sanity" >> $GITHUB_OUTPUT
-              echo "container_name=studio_sanity" >> $GITHUB_OUTPUT
-              echo "service_port=3333" >> $GITHUB_OUTPUT
-              ;;
-            minigames_fe)
-              echo "dockerfile_path=./minigames_fe" >> $GITHUB_OUTPUT
-              echo "image_name=devlee21/minigames_fe" >> $GITHUB_OUTPUT
-              echo "container_name=minigames_fe" >> $GITHUB_OUTPUT
-              echo "service_port=3007" >> $GITHUB_OUTPUT
-              ;;
-            nextjs)
-              echo "dockerfile_path=./nextjs" >> $GITHUB_OUTPUT
-              echo "image_name=devlee21/nextjs" >> $GITHUB_OUTPUT
-              echo "container_name=nextjs" >> $GITHUB_OUTPUT
-              echo "service_port=3008" >> $GITHUB_OUTPUT
-              ;;
-            *)
-              echo "❌ Unknown service: ${{ matrix.service }}"
-              exit 1
-              ;;
-          esac
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ steps.config.outputs.image_name }}
-          tags: |
-            type=raw,value=latest
-            type=sha,prefix=${{ github.ref_name }}-
-            type=ref,event=branch
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: ${{ steps.config.outputs.dockerfile_path }}
-          file: ${{ steps.config.outputs.dockerfile_path }}/Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=registry,ref=${{ steps.config.outputs.image_name }}:buildcache
-          cache-to: type=registry,ref=${{ steps.config.outputs.image_name }}:buildcache,mode=max
-          platforms: linux/amd64,linux/arm64
-
-      - name: Wait for Docker Hub propagation
-        run: sleep 15
-
-      - name: Build summary
-        run: |
-          echo "### ✅ Build Successful" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Service:** ${{ matrix.service }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Image:** ${{ steps.config.outputs.image_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Tags:** ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Container:** ${{ steps.config.outputs.container_name }}" >> $GITHUB_STEP_SUMMARY
-
-  # Skip build notification
+  # Skip build for testing - only redeploy
   skip-build:
     needs: detect-changes
-    if: needs.detect-changes.outputs.build-matrix == '[]'
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Skip build notification
         run: |
-          echo "### ⏭️ Build Skipped" >> $GITHUB_STEP_SUMMARY
+          echo "### ⏭️ Build Skipped for Testing" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "No service changes detected - skipping build and deployment" >> $GITHUB_STEP_SUMMARY
-          echo "**Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "ℹ️ Only workflow files or other non-service files were changed." >> $GITHUB_STEP_SUMMARY
+          echo "Build step temporarily disabled for Portainer API testing" >> $GITHUB_STEP_SUMMARY
+          echo "**Services to redeploy:** ${{ needs.detect-changes.outputs.deploy-matrix }}" >> $GITHUB_STEP_SUMMARY
+
 
   # Deploy using Portainer API
   deploy-with-portainer:
-    needs: [detect-changes, build-and-push]
+    needs: [detect-changes, skip-build]
     if: |
       always() && 
       needs.detect-changes.outputs.deploy-matrix != '[]' &&
@@ -379,26 +254,65 @@ jobs:
           echo "Endpoint ID: ${{ secrets.PORTAINER_ENDPOINT_ID }}"
           echo "Services to deploy: ${{ needs.detect-changes.outputs.deploy-matrix }}"
           
+          # Test Portainer API connection first
+          echo "🔍 Testing Portainer API connection..."
+          API_TEST=$(curl -s -w "%{http_code}" -o /tmp/api_test.json \
+            "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}" \
+            -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
+          
+          echo "API Test HTTP Code: $API_TEST"
+          if [ "$API_TEST" -ne 200 ]; then
+            echo "❌ Portainer API connection failed!"
+            echo "Response:"
+            cat /tmp/api_test.json
+            exit 1
+          fi
+          echo "✅ Portainer API connection successful"
+          
           # Get list of containers
           echo "📋 Getting containers list..."
-          CONTAINERS_JSON=$(curl -s -X GET \
+          CONTAINERS_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/containers.json \
             "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/json?all=true" \
             -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
           
-          if [ -z "$CONTAINERS_JSON" ] || [ "$CONTAINERS_JSON" == "null" ]; then
+          echo "Containers API HTTP Code: $CONTAINERS_RESPONSE"
+          
+          if [ "$CONTAINERS_RESPONSE" -ne 200 ]; then
             echo "❌ Failed to get containers list!"
+            echo "Response:"
+            cat /tmp/containers.json
             exit 1
           fi
           
+          # Validate JSON
+          if ! jq empty /tmp/containers.json 2>/dev/null; then
+            echo "❌ Invalid JSON response from containers API"
+            echo "Raw response:"
+            cat /tmp/containers.json
+            exit 1
+          fi
+          
+          CONTAINERS_JSON=$(cat /tmp/containers.json)
           echo "✅ Containers list retrieved successfully"
+          echo "📊 Found $(echo "$CONTAINERS_JSON" | jq length) containers"
           
           # Parse services to deploy
           SERVICES_TO_DEPLOY="${{ needs.detect-changes.outputs.deploy-matrix }}"
           echo "📦 Services to deploy: $SERVICES_TO_DEPLOY"
           
+          # Debug: Show all container names
+          echo "🔍 Available containers:"
+          echo "$CONTAINERS_JSON" | jq -r '.[] | .Names[]' | sed 's/^\///' | sort
+          
           if [ "$SERVICES_TO_DEPLOY" == "[]" ] || [ -z "$SERVICES_TO_DEPLOY" ]; then
             echo "ℹ️ No services to deploy"
             exit 0
+          fi
+          
+          # Validate JSON format
+          if ! echo "$SERVICES_TO_DEPLOY" | jq empty 2>/dev/null; then
+            echo "❌ Invalid JSON format for services to deploy: $SERVICES_TO_DEPLOY"
+            exit 1
           fi
           
           # Deploy each service
@@ -463,94 +377,68 @@ jobs:
             
             echo "🔍 Looking for container: $CONTAINER_PATTERN"
             
+            # Debug: Show exact search
+            echo "🔍 Searching for containers matching pattern: $CONTAINER_PATTERN"
+            MATCHING_CONTAINERS=$(echo "$CONTAINERS_JSON" | jq -r ".[] | select(.Names[] | contains(\"$CONTAINER_PATTERN\")) | {Id: .Id, Names: .Names, State: .State}")
+            echo "🔍 Matching containers:"
+            echo "$MATCHING_CONTAINERS"
+            
             # Find container
             CONTAINER_ID=$(echo "$CONTAINERS_JSON" | jq -r ".[] | select(.Names[] | contains(\"$CONTAINER_PATTERN\")) | .Id")
             
             if [ -z "$CONTAINER_ID" ] || [ "$CONTAINER_ID" == "null" ]; then
               echo "⚠️ Container for $service not found (pattern: $CONTAINER_PATTERN)"
               echo "Available containers:"
-              echo "$CONTAINERS_JSON" | jq -r '.[] | .Names[]' | head -10
+              echo "$CONTAINERS_JSON" | jq -r '.[] | {Names: .Names, State: .State}' | head -20
               DEPLOYMENT_RESULTS+=("$service:NOT_FOUND")
               continue
             fi
             
             echo "✅ Found container: $CONTAINER_ID"
             
-            # Get container details for rollback
-            CONTAINER_DETAILS=$(curl -s -X GET \
-              "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/$CONTAINER_ID/json" \
+            # Get container state
+            CONTAINER_STATE=$(echo "$CONTAINERS_JSON" | jq -r ".[] | select(.Id == \"$CONTAINER_ID\") | .State")
+            echo "📊 Container state: $CONTAINER_STATE"
+            
+            # Simple restart approach for testing
+            echo "🔄 Restarting container: $service"
+            
+            # Restart container
+            RESTART_CODE=$(curl -s -o /tmp/restart_response.json -w "%{http_code}" -X POST \
+              "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/$CONTAINER_ID/restart?t=30" \
               -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
             
-            # Pull latest image
-            echo "🔄 Pulling latest image: $IMAGE_NAME"
-            PULL_CODE=$(curl -s -o /tmp/pull_response.json -w "%{http_code}" -X POST \
-              "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/images/create?fromImage=$IMAGE_NAME" \
-              -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
-            
-            if [ "$PULL_CODE" -ge 200 ] && [ "$PULL_CODE" -lt 300 ]; then
-              echo "✅ Latest image pulled successfully"
+            echo "Restart HTTP Code: $RESTART_CODE"
+            if [ "$RESTART_CODE" -ge 200 ] && [ "$RESTART_CODE" -lt 300 ]; then
+              echo "✅ Container restarted successfully"
             else
-              echo "⚠️ Failed to pull image (HTTP: $PULL_CODE), but continuing..."
+              echo "⚠️ Container restart response: $RESTART_CODE"
+              echo "Response:"
+              cat /tmp/restart_response.json
             fi
             
-            # Stop container gracefully
-            echo "🛑 Stopping container gracefully..."
-            STOP_CODE=$(curl -s -o /tmp/stop_response.json -w "%{http_code}" -X POST \
-              "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/$CONTAINER_ID/stop?t=30" \
-              -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
+            # Wait for container to be running
+            sleep 10
             
-            if [ "$STOP_CODE" -ge 200 ] && [ "$STOP_CODE" -lt 300 ]; then
-              echo "✅ Container stopped successfully"
-            else
-              echo "⚠️ Container stop response: $STOP_CODE (may already be stopped)"
-            fi
-            
-            # Wait a moment for graceful shutdown
-            sleep 5
-            
-            # Remove container
-            echo "🗑️ Removing container..."
-            REMOVE_CODE=$(curl -s -o /tmp/remove_response.json -w "%{http_code}" -X DELETE \
-              "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/$CONTAINER_ID" \
-              -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
-            
-            if [ "$REMOVE_CODE" -ge 200 ] && [ "$REMOVE_CODE" -lt 300 ]; then
-              echo "✅ Container removed successfully"
-            else
-              echo "⚠️ Container remove response: $REMOVE_CODE"
-            fi
-            
-            # Wait for container to be fully removed
-            sleep 3
-            
-            # The container will be recreated automatically by docker-compose restart policy
-            echo "🚀 Container $service will be recreated automatically by docker-compose"
-            
-            # Wait for container to be recreated and healthy
-            echo "⏳ Waiting for container to be recreated and healthy..."
-            MAX_WAIT=120
+            # Check if container is running after restart
+            echo "⏳ Checking container status after restart..."
+            MAX_WAIT=60
             WAIT_COUNT=0
             
             while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
-              # Check if new container exists
-              NEW_CONTAINERS_JSON=$(curl -s -X GET \
+              # Get updated container status
+              UPDATED_CONTAINERS_JSON=$(curl -s -X GET \
                 "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/json?all=true" \
                 -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
               
-              NEW_CONTAINER_ID=$(echo "$NEW_CONTAINERS_JSON" | jq -r ".[] | select(.Names[] | contains(\"$CONTAINER_PATTERN\")) | .Id")
+              UPDATED_CONTAINER_STATE=$(echo "$UPDATED_CONTAINERS_JSON" | jq -r ".[] | select(.Id == \"$CONTAINER_ID\") | .State")
               
-              if [ -n "$NEW_CONTAINER_ID" ] && [ "$NEW_CONTAINER_ID" != "null" ]; then
-                # Check if container is running
-                CONTAINER_STATE=$(echo "$NEW_CONTAINERS_JSON" | jq -r ".[] | select(.Id == \"$NEW_CONTAINER_ID\") | .State")
-                if [ "$CONTAINER_STATE" == "running" ]; then
-                  echo "✅ Container $service is running successfully"
-                  DEPLOYMENT_RESULTS+=("$service:SUCCESS")
-                  break
-                else
-                  echo "⏳ Container $service is $CONTAINER_STATE, waiting..."
-                fi
+              if [ "$UPDATED_CONTAINER_STATE" == "running" ]; then
+                echo "✅ Container $service is running successfully"
+                DEPLOYMENT_RESULTS+=("$service:SUCCESS")
+                break
               else
-                echo "⏳ Container $service not yet recreated, waiting..."
+                echo "⏳ Container $service is $UPDATED_CONTAINER_STATE, waiting..."
               fi
               
               sleep 5
@@ -558,7 +446,7 @@ jobs:
             done
             
             if [ $WAIT_COUNT -ge $MAX_WAIT ]; then
-              echo "❌ Timeout waiting for container $service to be healthy"
+              echo "❌ Timeout waiting for container $service to be running"
               DEPLOYMENT_RESULTS+=("$service:TIMEOUT")
             fi
           done
