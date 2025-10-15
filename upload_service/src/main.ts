@@ -10,8 +10,6 @@ async function bootstrap() {
   console.log(`PORT: ${port}`);
   console.log(`PORT: ${port}`);
   console.log(`PORT: ${port}`);
-  console.log(`PORT: ${port}`);
-  console.log(`PORT: ${port}`);
   // Create microservice application
   const app = await NestFactory.createMicroservice<MicroserviceOptions>(
     AppModule,
