@@ -1,0 +1,114 @@
+# Dynamic configuration cho Traefik - API Droplet
+http:
+  middlewares:
+    cors-headers:
+      headers: 
+        accessControlAllowOriginList: "*"
+        accessControlAllowMethods: 
+          - "GET"
+          - "POST" 
+          - "PUT"
+          - "DELETE"
+          - "OPTIONS"
+          - "PATCH"
+        accessControlAllowHeaders:
+          - "Authorization"
+          - "Content-Type"
+          - "X-Requested-With"
+          - "Origin"
+          - "Accept"
+          - "X-CSRF-Token"
+        accessControlExposeHeaders:
+          - "Content-Length"
+          - "Content-Range"
+          - "X-Total-Count"
+        accessControlAllowCredentials: true
+        accessControlMaxAge: 86400
+
+    # Security headers
+    security-headers:
+      headers:
+        frameDeny: true
+        contentTypeNosniff: true
+        browserXssFilter: true
+        referrerPolicy: "strict-origin-when-cross-origin"
+        customRequestHeaders:
+          X-Forwarded-Proto: "https"
+        customResponseHeaders:
+          X-Frame-Options: "DENY"
+          X-Content-Type-Options: "nosniff"
+          X-XSS-Protection: "1; mode=block"
+          Strict-Transport-Security: "max-age=31536000; includeSubDomains"
+
+  # Forward auth middleware cho URL signature validation
+  srs-flv-auth:
+    forwardAuth:
+      address: "http://api.vaoluoitv.com/api/v1/stream/secure-validate"
+      authResponseHeaders:
+        - "X-Stream-Id"
+        - "X-Stream-Status"
+        - "X-User-Id"
+      trustForwardHeader: true
+
+    # Rate limiting 
+    srs-ratelimit:
+      rateLimit:
+        burst: 10
+        average: 5
+        period: "1m"
+        sourceCriterion:
+          ipStrategy:
+            depth: 2
+    # Router cho HTTP-FLV streams với URL signature validation
+    srs-flv-router:
+      rule: "Host(`ingest.vaoluoitv.com`) && PathPrefix(`/live/`) && PathRegexp(`/live/[^/]+\\.flv$`)"
+      service: "srs-flv-service"
+      entryPoints:
+        - "websecure"
+      tls:
+        certResolver: "letsencrypt"
+      middlewares:
+        - "cors-headers"
+        - "security-headers"
+        - "srs-flv-auth"
+
+    # Router cho SRS API và monitoring
+    srs-api-router:
+      rule: "Host(`ingest.vaoluoitv.com`) && PathPrefix(`/api/`)"
+      service: "srs-api-service"  
+      entryPoints:
+        - "websecure"
+      tls:
+        certResolver: "letsencrypt"
+      middlewares:
+        - "cors-headers"
+        - "security-headers"
+        - "srs-ratelimit"
+
+  services:
+    # Service cho HTTP-FLV streams (port 8080)
+    srs-flv-service:
+      loadBalancer:
+        servers:
+          - url: "http://srs:8080"
+        healthCheck:
+          path: "/api/v1/summaries"
+          interval: "30s"
+          timeout: "5s"
+          scheme: "http"
+
+    # Service cho SRS API và monitoring (port 1985)  
+    srs-api-service:
+      loadBalancer:
+        servers:
+          - url: "http://srs:1985"
+        healthCheck:
+          path: "/api/v1/summaries"
+          interval: "30s"
+          timeout: "5s"
+          scheme: "http"
+        sticky:
+          cookie:
+            name: "srs-server"
+            secure: true
+            httpOnly: true

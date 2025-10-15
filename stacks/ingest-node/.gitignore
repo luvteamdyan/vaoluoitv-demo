@@ -1,0 +1,51 @@
+# LL-HLS Ingest PoP .gitignore
+
+# Environment variables
+.env
+.env.local
+.env.production
+
+# SSL Certificates (private keys)
+nginx/ssl/*.key
+nginx/ssl/*.pem
+
+letsencrypt/
+
+# Logs
+*.log
+logs/
+nginx/logs/
+srs/logs/
+
+# Docker volumes
+volumes/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Backup files
+*.bak
+*.backup
+*.orig
+
+# Runtime files
+*.pid
+*.lock

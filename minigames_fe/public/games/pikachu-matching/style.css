@@ -1,0 +1,574 @@
+/* Reset and Base Styles */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    background: url('https://luck8event.com/page-bg.jpg');
+    color: white;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+}
+
+/* Game Container - Đảm bảo hiển thị trong 1 khung hình */
+.game-container {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    overflow: hidden;
+}
+
+/* Main Content Area - Layout 3 cột */
+.main-content {
+    position: relative;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    width: 100%;
+    height: 100%;
+    max-width: 1400px;
+}
+
+/* Left Panel - Header */
+.left-panel {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 200px;
+}
+
+/* Center Panel - Game Board */
+.center-panel {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    max-width: 800px;
+}
+
+/* Right Panel - Game Controls */
+.right-panel {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 200px;
+}
+
+/* Background Decoration - Tham khảo CheckInGame */
+.background-decoration {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.bg-circle {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(40px);
+    mix-blend-mode: multiply;
+    animation: pulse 4s ease-in-out infinite;
+}
+
+.bg-circle-1 {
+    width: 300px;
+    height: 300px;
+    background: rgba(255, 193, 7, 0.2);
+    top: -150px;
+    right: -150px;
+    animation-delay: 0s;
+}
+
+.bg-circle-2 {
+    width: 250px;
+    height: 250px;
+    background: rgba(255, 152, 0, 0.2);
+    bottom: -125px;
+    left: -125px;
+    animation-delay: 2s;
+}
+
+.bg-circle-3 {
+    width: 200px;
+    height: 200px;
+    background: rgba(255, 87, 34, 0.15);
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    animation-delay: 1s;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 0.3; transform: scale(1); }
+    50% { opacity: 0.6; transform: scale(1.1); }
+}
+
+/* Game Header */
+.header-content {
+    background: rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(10px);
+    border-radius: 16px;
+    padding: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    transform: rotate(180deg);
+}
+
+.game-title {
+    font-size: 1.8rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, #fff7e6 0%, #ffe0b2 100%);
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+    white-space: nowrap;
+}
+
+
+/* Game Board Wrapper */
+.game-board-wrapper {
+    position: relative;
+    width: 100%;
+    max-width: min(95vw, 95vh - 120px);
+    aspect-ratio: 1;
+}
+
+/* Game Board */
+.game-board {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    grid-template-rows: repeat(8, 1fr);
+    gap: 2px;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, #fff7e6 0%, #ffe0b2 100%);
+    backdrop-filter: blur(10px);
+    border-radius: 10px;
+    padding: 20px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+    position: relative;
+}
+
+/* Link Line Canvas */
+#linkLineCanvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 20;
+}
+
+/* Pokemon Tiles */
+.pokemon-tile {
+    background: linear-gradient(135deg, #2491ff 0%, #e9ecef 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 5px;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+    transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.pokemon-tile:hover {
+    box-shadow: 0 4px 12px rgba(255, 215, 0, 0.4);
+    border: 2px solid #1d77ff;
+    z-index: 10;
+}
+
+.pokemon-tile.selected {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 6px 20px rgba(247, 255, 177, 0.6);
+    background: linear-gradient(135deg, #2491ff 0%, #0080ff 100%);
+    z-index: 15;
+}
+
+.pokemon-tile.matched {
+    animation: matchSuccess 0.6s ease-out;
+    opacity: 0;
+    pointer-events: none;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+}
+
+.pokemon-tile.hint {
+    animation: hintPulse 1s ease-in-out infinite;
+    border-color: #ff0000;
+    background: #ff2727aa;
+    box-shadow: 0 0 20px rgba(128, 255, 0, 0.8);
+}
+
+.pokemon-image {
+    width: 90%;
+    height: 90%;
+    object-fit: contain;
+    filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.4));
+}
+
+@keyframes matchSuccess {
+    0% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.2); opacity: 0.8; }
+    100% { transform: scale(1); opacity: 0; background: transparent; border: none; box-shadow: none; }
+}
+
+@keyframes hintPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+/* Game Controls */
+.game-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+#musicToggleBtn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 48px;
+    padding: 12px;
+}
+
+#musicIcon {
+    font-size: 1.5em;
+}
+
+.btn {
+    padding: 12px 24px;
+    border: none;
+    border-radius: 12px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #ffd700 0%, #ff8c00 100%);
+    color: #1a1a2e;
+}
+
+.btn-primary:hover {
+    background: linear-gradient(135deg, #ffed4e 0%, #ff9500 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(255, 215, 0, 0.4);
+}
+
+.btn-secondary {
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.2);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(255, 255, 255, 0.1);
+}
+
+.btn:disabled,
+.btn.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+/* Modal Styles */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(10px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s ease;
+}
+
+.modal-overlay.show {
+    opacity: 1;
+    visibility: visible;
+}
+
+.modal-content {
+    background: rgba(26, 26, 46, 0.95);
+    backdrop-filter: blur(20px);
+    border-radius: 20px;
+    padding: 30px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    max-width: 400px;
+    width: 90%;
+    transform: scale(0.9) translateY(20px);
+    transition: all 0.3s ease;
+}
+
+.modal-overlay.show .modal-content {
+    transform: scale(1) translateY(0);
+}
+
+.modal-header {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.modal-title {
+    font-size: 1.8rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #ffd700 0%, #ff8c00 100%);
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.modal-body {
+    margin-bottom: 25px;
+}
+
+.final-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.final-stat {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 15px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.final-stat-label {
+    color: rgba(255, 255, 255, 0.8);
+    font-weight: 500;
+}
+
+.final-stat-value {
+    color: #ffd700;
+    font-weight: 700;
+    font-size: 1.1rem;
+}
+
+.modal-footer {
+    display: flex;
+    gap: 15px;
+    justify-content: center;
+}
+
+/* Hint Overlay */
+.hint-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgb(255, 0, 0);
+    pointer-events: none;
+    z-index: 5;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.hint-overlay.show {
+    opacity: 1;
+}
+
+/* Responsive Design - Mobile */
+@media (max-width: 1024px) {
+    .game-container {
+        flex-direction: column;
+        padding: 5px;
+    }
+    
+    .main-content {
+        flex-direction: column;
+        gap: 15px;
+        justify-content: center;
+    }
+    
+    .left-panel,
+    .right-panel {
+        min-width: auto;
+        width: 100%;
+    }
+    
+    .header-content {
+        writing-mode: horizontal-tb;
+        text-orientation: mixed;
+        transform: none;
+        padding: 8px;
+        margin-bottom: 0;
+    }
+    
+    .game-title {
+        text-align: center;
+        margin: 0;
+    }
+    
+    .game-controls {
+        flex-direction: row;
+        justify-content: center;
+        flex-wrap: wrap;
+        margin-top: 0;
+    }
+    
+    .center-panel {
+        max-width: 100%;
+        flex: none;
+    }
+    
+    .game-board-wrapper {
+        max-width: min(98vw, 98vh - 200px);
+    }
+}
+
+@media (max-width: 768px) {
+    .game-container {
+        padding: 3px;
+    }
+    
+    .main-content {
+        gap: 12px;
+    }
+    
+    .game-title {
+        font-size: 1.2rem;
+    }
+    
+    .header-content {
+        padding: 6px;
+    }
+    
+    .game-board-wrapper {
+        max-width: min(98vw, 98vh - 160px);
+    }
+    
+    .game-board {
+        gap: 1px;
+        padding: 10px;
+    }
+    
+    .game-controls {
+        gap: 8px;
+    }
+    
+    .btn {
+        padding: 8px 16px;
+        font-size: 0.85rem;
+        min-width: 80px;
+    }
+}
+
+@media (max-width: 480px) {
+    .game-container {
+        padding: 2px;
+    }
+    
+    .main-content {
+        gap: 20px;
+    }
+    
+    .game-title {
+        font-size: 1.1rem;
+    }
+    
+    .header-content {
+        padding: 5px;
+    }
+    
+    .game-board-wrapper {
+        max-width: min(99vw, 99vh - 140px);
+    }
+    
+    .game-board {
+        gap: 1px;
+        padding: 8px;
+    }
+    
+    .pokemon-tile {
+        min-height: 35px;
+    }
+    
+    .pokemon-image {
+        width: 85%;
+        height: 85%;
+    }
+    
+    .game-controls {
+        gap: 6px;
+    }
+    
+    .btn {
+        padding: 6px 12px;
+        font-size: 0.8rem;
+        min-width: 70px;
+    }
+}
+
+/* Loading Animation */
+.loading {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 3px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    border-top-color: #ffd700;
+    animation: spin 1s ease-in-out infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Success Animation */
+.success-animation {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 3rem;
+    color: #ffd700;
+    pointer-events: none;
+    animation: successPop 0.6s ease-out;
+}
+
+@keyframes successPop {
+    0% { transform: translate(-50%, -50%) scale(0); opacity: 0; }
+    50% { transform: translate(-50%, -50%) scale(1.2); opacity: 1; }
+    100% { transform: translate(-50%, -50%) scale(1); opacity: 0; }
+}

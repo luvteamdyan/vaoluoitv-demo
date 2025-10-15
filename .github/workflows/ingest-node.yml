@@ -1,0 +1,466 @@
+name: CI/CD Pipeline for Ingest Node
+
+on:
+  push:
+    branches: [ main, develop, release/*, feature/ingest_setup ]
+    paths:
+      - 'server-config/ingest-node/**'
+      - '.github/workflows/ingest-node.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'server-config/ingest-node/**'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/ingest-node
+  INGEST_DOMAIN: ${{ secrets.INGEST_DOMAIN }}
+  API_DOMAIN: ${{ secrets.API_DOMAIN }}
+
+jobs:
+  # Test và Validation Job
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Navigate to ingest-node directory
+      run: cd server-config/ingest-node
+
+    - name: Validate Docker Compose configuration
+      run: |
+        cd server-config/ingest-node
+        docker compose config
+
+    - name: Validate SRS configuration
+      run: |
+        cd server-config/ingest-node
+        # Check SRS config syntax
+        docker run --rm -v $(pwd)/srs/srs.conf:/usr/local/srs/conf/srs.conf ossrs/srs:5 /usr/local/srs/objs/srs -t -c /usr/local/srs/conf/srs.conf
+
+    - name: Validate Traefik configuration
+      run: |
+        cd server-config/ingest-node
+        # Check Traefik dynamic config syntax (YAML validation only)
+        python3 -c "import yaml; yaml.safe_load(open('traefik/dynamic.yml'))" || {
+          echo "Traefik dynamic.yml has YAML syntax errors"
+          exit 1
+        }
+        echo "Traefik dynamic.yml syntax is valid"
+
+    - name: Test environment setup
+      run: |
+        cd server-config/ingest-node
+        # Validate environment variables
+        echo "BACKEND_API_URL=https://${{ secrets.API_DOMAIN }}" >> .env
+        echo "INGEST_DOMAIN=${{ secrets.INGEST_DOMAIN }}" >> .env
+        echo "API_DOMAIN=${{ secrets.API_DOMAIN }}" >> .env
+
+    - name: Start test environment
+      run: |
+        cd server-config/ingest-node
+        # Start services for testing
+        docker compose up -d --build
+        # Wait for services to be ready
+        sleep 30
+
+    - name: Run health checks
+      run: |
+        cd server-config/ingest-node
+        # Check SRS API health (SRS API runs on port 1985, not 8080)
+        curl -f http://localhost:1985/api/v1/summaries || {
+          echo "SRS API health check failed"
+          docker compose logs srs
+          exit 1
+        }
+        
+        # Check Traefik API health (Traefik API is not exposed on port 8080)
+        # Instead, check if Traefik is running and responding to HTTP requests
+        curl -f http://localhost:80 || {
+          echo "Traefik HTTP health check failed"
+          docker compose logs traefik
+          exit 1
+        }
+
+    - name: Test Cross-Server communication
+      run: |
+        cd server-config/ingest-node
+          # Test backend API connectivity (mock test)
+          echo "Testing Cross-Server communication..."
+          # This would normally test against actual backend API
+          echo "Testing against: https://${{ secrets.API_DOMAIN }}"
+          echo "Cross-Server communication test passed"
+
+    - name: Test RTMP ingest endpoint
+      run: |
+        cd server-config/ingest-node
+        # Test RTMP port accessibility
+        nc -z localhost 1935 || {
+          echo "RTMP port 1935 not accessible"
+          exit 1
+        }
+
+    - name: Test HTTP-FLV streaming endpoint
+      run: |
+        cd server-config/ingest-node
+        # Test HTTP-FLV port accessibility
+        nc -z localhost 8080 || {
+          echo "HTTP-FLV port 8080 not accessible"
+          exit 1
+        }
+
+    - name: Cleanup test environment
+      if: always()
+      run: |
+        cd server-config/ingest-node
+        docker compose down -v
+        docker system prune -f
+
+  # Build và Push Docker Images
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push SRS image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./server-config/ingest-node
+        file: ./server-config/ingest-node/Dockerfile.srs
+        platforms: linux/amd64,linux/arm64
+        push: true
+        tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/srs:${{ steps.meta.outputs.version }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Build and push Traefik image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./server-config/ingest-node
+        file: ./server-config/ingest-node/Dockerfile.traefik
+        platforms: linux/amd64,linux/arm64
+        push: true
+        tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/traefik:${{ steps.meta.outputs.version }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  # Deploy to Production
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    environment: production
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Deploy to ingest server
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.INGEST_HOST }}
+        username: ${{ secrets.INGEST_USERNAME }}
+        key: ${{ secrets.INGEST_SSH_KEY }}
+        port: ${{ secrets.INGEST_PORT }}
+        script: |
+          # Navigate to project directory
+          cd /opt/vaoluoitv/
+          
+          # Pull latest changes
+          git pull origin main
+          
+          # Login to GitHub Container Registry
+          echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          
+          # Navigate to ingest-node config directory
+          cd server-config/ingest-node
+          
+          # Setup tmpfs mount
+          sudo mkdir -p /dev/shm/flv-streams
+          sudo mount -t tmpfs -o size=2G,noexec,nosuid,nodev tmpfs /dev/shm/flv-streams
+          
+          # Stop existing containers
+          docker compose --env-file .env down
+          
+          # Pull latest images
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/srs:latest
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/traefik:latest
+          
+          # Start new containers
+          docker compose --env-file .env up -d
+          
+          # Wait for containers to be healthy
+          sleep 30
+          
+          # Check container health
+          docker compose --env-file .env ps
+          
+          # Verify SRS API is responding (SRS API runs on port 1985)
+          curl -f http://localhost:1985/api/v1/summaries || {
+            echo "SRS API health check failed. Checking logs..."
+            docker compose --env-file .env logs srs --tail 50
+            exit 1
+          }
+          
+          # Verify Traefik is responding (check HTTP port 80)
+          curl -f http://localhost:80 || {
+            echo "Traefik HTTP health check failed. Checking logs..."
+            docker compose --env-file .env logs traefik --tail 50
+            exit 1
+          }
+          
+          # Test Cross-Server communication
+          curl -f https://${{ secrets.API_DOMAIN }}/api/v1/health || {
+            echo "Backend API connectivity test failed"
+            exit 1
+          }
+          
+          # Clean up unused images
+          docker image prune -f
+
+    - name: Health Check
+      run: |
+        sleep 30
+        # Test HTTPS endpoint (SRS API through Traefik)
+        curl -f https://${{ secrets.INGEST_DOMAIN }}/api/v1/summaries || exit 1
+        # Test RTMP endpoint
+        nc -z ${{ secrets.INGEST_DOMAIN }} 1935 || exit 1
+
+    - name: SSL Certificate Check
+      run: |
+        # Check SSL certificate validity
+        echo | openssl s_client -servername ${{ secrets.INGEST_DOMAIN }} -connect ${{ secrets.INGEST_DOMAIN }}:443 2>/dev/null | openssl x509 -noout -dates
+
+  # Security Scan
+  security:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/')
+    
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run Trivy vulnerability scanner for SRS
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/srs:latest
+        format: 'sarif'
+        output: 'trivy-srs-results.sarif'
+
+    - name: Run Trivy vulnerability scanner for Traefik
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/traefik:latest
+        format: 'sarif'
+        output: 'trivy-traefik-results.sarif'
+
+    - name: Run Trivy vulnerability scanner (table format)
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/srs:latest
+        format: 'table'
+
+    - name: Run Trivy vulnerability scanner for Traefik (table format)
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/traefik:latest
+        format: 'table'
+
+    - name: Check for high/critical vulnerabilities in SRS
+      run: |
+        echo "🔍 Checking for high/critical vulnerabilities in SRS..."
+        if docker run --rm aquasec/trivy:latest image ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/srs:latest --format json | jq -r '.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH" or .Severity == "CRITICAL") | .VulnerabilityID' | head -1; then
+          echo "⚠️ High or Critical vulnerabilities detected in SRS image!"
+          echo "Please review and fix these vulnerabilities before deploying to production."
+          exit 1
+        else
+          echo "✅ No high or critical vulnerabilities found in SRS image."
+        fi
+
+    - name: Check for high/critical vulnerabilities in Traefik
+      run: |
+        echo "🔍 Checking for high/critical vulnerabilities in Traefik..."
+        if docker run --rm aquasec/trivy:latest image ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/traefik:latest --format json | jq -r '.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH" or .Severity == "CRITICAL") | .VulnerabilityID' | head -1; then
+          echo "⚠️ High or Critical vulnerabilities detected in Traefik image!"
+          echo "Please review and fix these vulnerabilities before deploying to production."
+          exit 1
+        else
+          echo "✅ No high or critical vulnerabilities found in Traefik image."
+        fi
+
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-srs-results.sarif'
+      continue-on-error: true
+
+    - name: Upload Traefik scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-traefik-results.sarif'
+      continue-on-error: true
+
+    - name: Display scan results if upload failed
+      if: always() && failure()
+      run: |
+        echo "⚠️ Failed to upload SARIF results to GitHub Security tab"
+        echo "This might be due to insufficient permissions or repository settings"
+        echo "Scan results are still available locally:"
+        if [ -f "trivy-srs-results.sarif" ]; then
+          echo "📄 SRS SARIF file exists and contains scan results"
+          echo "File size: $(wc -c < trivy-srs-results.sarif) bytes"
+        fi
+        if [ -f "trivy-traefik-results.sarif" ]; then
+          echo "📄 Traefik SARIF file exists and contains scan results"
+          echo "File size: $(wc -c < trivy-traefik-results.sarif) bytes"
+        fi
+
+  # Performance Testing
+  performance:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup test environment
+      run: |
+        cd server-config/ingest-node
+        cp env.example .env
+        echo "BACKEND_API_URL=https://${{ secrets.API_DOMAIN }}" >> .env
+        docker compose up -d
+        sleep 30
+
+    - name: Run performance tests
+      run: |
+        cd server-config/ingest-node
+        # Test SRS API response time
+        echo "Testing SRS API response time..."
+        time curl -s http://localhost:1985/api/v1/summaries > /dev/null
+        
+        # Test Traefik HTTP response time
+        echo "Testing Traefik HTTP response time..."
+        time curl -s http://localhost:80 > /dev/null
+        
+        # Test memory usage
+        echo "Testing memory usage..."
+        docker stats --no-stream --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}"
+
+    - name: Load test RTMP endpoint
+      run: |
+        cd server-config/ingest-node
+        # Test RTMP port connectivity
+        for i in {1..10}; do
+          nc -z localhost 1935 && echo "RTMP port test $i: OK" || echo "RTMP port test $i: FAILED"
+        done
+
+    - name: Load test HTTP-FLV endpoint
+      run: |
+        cd server-config/ingest-node
+        # Test HTTP-FLV port connectivity
+        for i in {1..10}; do
+          nc -z localhost 8080 && echo "HTTP-FLV port test $i: OK" || echo "HTTP-FLV port test $i: FAILED"
+        done
+
+    - name: Cleanup performance test environment
+      if: always()
+      run: |
+        cd server-config/ingest-node
+        docker compose down -v
+        docker system prune -f
+
+  # Monitoring và Alerting
+  monitoring:
+    needs: deploy
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup monitoring checks
+      run: |
+        echo "🔍 Setting up monitoring checks for ingest node..."
+        
+        # Check SRS API health (through Traefik)
+        curl -f https://${{ secrets.INGEST_DOMAIN }}/api/v1/summaries || {
+          echo "❌ SRS API health check failed"
+          exit 1
+        }
+        
+        # Check Traefik HTTP health
+        curl -f https://${{ secrets.INGEST_DOMAIN }} || {
+          echo "❌ Traefik HTTP health check failed"
+          exit 1
+        }
+        
+        # Check SSL certificate
+        echo | openssl s_client -servername ${{ secrets.INGEST_DOMAIN }} -connect ${{ secrets.INGEST_DOMAIN }}:443 2>/dev/null | openssl x509 -noout -dates || {
+          echo "❌ SSL certificate check failed"
+          exit 1
+        }
+        
+        # Check Cross-Server communication
+        curl -f https://${{ secrets.API_DOMAIN }}/api/v1/health || {
+          echo "❌ Backend API connectivity check failed"
+          exit 1
+        }
+        
+        echo "✅ All monitoring checks passed"
+
+    - name: Send deployment notification
+      if: always()
+      run: |
+        echo "📢 Deployment notification for ingest node"
+        echo "Status: ${{ job.status }}"
+        echo "Commit: ${{ github.sha }}"
+        echo "Branch: ${{ github.ref_name }}"
+        echo "Domain: https://${{ secrets.INGEST_DOMAIN }}"

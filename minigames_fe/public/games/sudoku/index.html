@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Luck8 Event Sudoku</title>
+    <link rel="stylesheet" href="index.css" />
+    <link rel="manifest" href="sudoku.webmanifest" />
+    <link rel="shortcut icon" type="image/svg+xml" href="icon.svg" />
+    <link rel="shortcut icon" type="image/png" href="icon.png" />
+    <link rel="mask-icon" href="icon.svg" color="black" />
+    <link rel="apple-touch-icon" href="icon-192.png" />
+    <meta name="description" content="Web Interface to play Sudoku online" />
+    <meta name="theme-color" content="#222" />
+    
+    <!-- Cookie Utils for cross-subdomain authentication -->
+    <script src="/shared/cookie-utils.js"></script>
+    <script src="/api/config"></script>
+    <script src="/shared/postmessage-auth.js"></script>
+    <script>
+      // Authentication Check - Redirect to login if not authenticated
+      (function() {
+        function checkAuth() {
+          const token = window.CookieUtils ? window.CookieUtils.getAuthToken() : null;
+          const user = window.CookieUtils ? window.CookieUtils.getUserData() : null;
+          
+          if (!token || !user) {
+            console.log('No authentication found, redirecting to login...');
+            // Redirect về trang chủ hoặc trang login của Next.js app
+            window.location.href = '/';
+            return;
+          }
+          
+          console.log('User authenticated, loading Sudoku...');
+        }
+        
+        // In iframe, wait for postMessage auth data (development)
+        if (window.self !== window.top) {
+          console.log('In iframe, waiting for auth data...');
+          // Wait for auth data or timeout after 2 seconds
+          let authReceived = false;
+          
+          window.addEventListener('authDataReceived', function() {
+            authReceived = true;
+            checkAuth();
+          });
+          
+          setTimeout(function() {
+            if (!authReceived) {
+              console.log('Auth data timeout, checking existing cookies...');
+              checkAuth();
+            }
+          }, 2000);
+        } else {
+          // Not in iframe, check immediately
+          checkAuth();
+        }
+      })();
+    </script>
+    
+    <script src="milestone_tracker.js"></script>
+    <script type="module" src="index.js"></script>
+    <script>
+      // Initialize milestone tracker after DOM is ready
+      window.addEventListener('load', function() {
+        console.log('[Sudoku] DOM loaded, initializing milestone tracker...');
+        console.log('[Sudoku] window.CookieUtils:', window.CookieUtils);
+        console.log('[Sudoku] window.sudokuMilestoneTracker:', window.sudokuMilestoneTracker);
+        
+        // Get user info from cookies (cross-subdomain)
+        const user = window.CookieUtils ? window.CookieUtils.getUserData() : null;
+        console.log('[Sudoku] User data:', user);
+        
+        if (user && window.sudokuMilestoneTracker) {
+          try {
+            const apiBaseUrl = window.MINIGAMES_CONFIG?.API_BASE_URL || 'https://games-api.vaoluoitv.com';
+            console.log('[Sudoku] API Base URL:', apiBaseUrl);
+            window.sudokuMilestoneTracker.init(user.id, apiBaseUrl);
+            console.log('[Sudoku] Sudoku milestone tracker initialized for user:', user.id);
+          } catch (e) {
+            console.error('[Sudoku] Failed to initialize sudoku milestone tracker:', e);
+          }
+        } else {
+          console.error('[Sudoku] Cannot initialize tracker:', {
+            hasUser: !!user,
+            hasTracker: !!window.sudokuMilestoneTracker,
+            user: user
+          });
+        }
+      });
+    </script>
+  </head>
+  <body>
+    <h1>Luck8 Event Sudoku</h1>
+    <p>
+      Hoàn thành Sudoku để nhận 3 lượt quay thưởng!!
+    </p>
+    <main>
+      If your browser is compatible, it will display the Sudoku grid here
+      momentarily. If nothing happen, check if you are using an up-to-date
+      navigator or raise an issue.
+    </main>
+    <aside>
+      <button id="newGame" disabled accesskey="n">Game mới</button>
+      <button form="sudoku" type="reset" accesskey="r">Chơi lại</button>
+      <button id="pauseGame" disabled accesskey="p">Tạm dừng</button>
+    </aside>
+    <noscript>
+      JavaScript is required to fill the grid and let you play.
+    </noscript>
+  </body>
+</html>

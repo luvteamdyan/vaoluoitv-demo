@@ -1,0 +1,172 @@
+/* Custom Utility Classes */
+@layer utilities {
+  /* Football Specific Utilities */
+  .text-football-gradient {
+    @apply bg-gradient-to-r from-football-green-500 to-football-field-500 bg-clip-text text-transparent;
+  }
+  
+  .bg-football-gradient {
+    @apply bg-gradient-to-br from-football-green-400 via-football-field-400 to-football-green-600;
+  }
+  
+  .border-football-gradient {
+    @apply border-2 border-transparent bg-gradient-to-r from-football-green-500 to-football-field-500 bg-clip-border;
+  }
+  
+  /* Live Stream Utilities */
+  .live-pulse {
+    @apply animate-pulse bg-live-red;
+  }
+  
+  .live-glow {
+    @apply shadow-live;
+  }
+  
+  /* Video Player Utilities */
+  .video-aspect {
+    @apply aspect-video;
+  }
+  
+  .video-aspect-vertical {
+    @apply aspect-[9/16];
+  }
+  
+  .video-aspect-wide {
+    @apply aspect-[21/9];
+  }
+  
+  /* Chat Utilities */
+  .chat-scroll {
+    @apply scrollbar-red;
+  }
+  
+  .chat-bubble {
+    @apply relative rounded-lg px-3 py-2 before:content-[''] before:absolute before:border-4 before:border-transparent;
+  }
+  
+  .chat-bubble-left {
+    @apply before:left-0 before:top-1/2 before:-translate-y-1/2 before:-translate-x-1 before:border-r-muted;
+  }
+  
+  .chat-bubble-right {
+    @apply before:right-0 before:top-1/2 before:-translate-y-1/2 before:translate-x-1 before:border-l-muted;
+  }
+  
+  /* Stadium/Field Utilities */
+  .stadium-shadow {
+    @apply shadow-stadium;
+  }
+  
+  .field-pattern {
+    @apply bg-gradient-to-b from-football-field-200 to-football-field-400;
+  }
+  
+  /* Team Color Utilities */
+  .team-border {
+    @apply border-2 border-football-team-red;
+  }
+  
+  .team-bg {
+    @apply bg-football-team-red;
+  }
+  
+  .team-text {
+    @apply text-football-team-red;
+  }
+  
+  /* Responsive Utilities */
+  .mobile-only {
+    @apply block mobile:block tablet:hidden desktop:hidden;
+  }
+  
+  .tablet-only {
+    @apply hidden mobile:hidden tablet:block desktop:hidden;
+  }
+  
+  .desktop-only {
+    @apply hidden mobile:hidden tablet:hidden desktop:block;
+  }
+  
+  .mobile-tablet {
+    @apply block mobile:block tablet:block desktop:hidden;
+  }
+  
+  .tablet-desktop {
+    @apply hidden mobile:hidden tablet:block desktop:block;
+  }
+  
+  /* Animation Utilities */
+  .animate-fade-in {
+    @apply animate-fade-in;
+  }
+  
+  .animate-slide-up {
+    @apply animate-slide-up;
+  }
+  
+  .animate-slide-down {
+    @apply animate-slide-down;
+  }
+  
+  .animate-scale-in {
+    @apply animate-scale-in;
+  }
+  
+  /* Performance Utilities */
+  .gpu-accelerated {
+    @apply transform-gpu;
+  }
+  
+  .will-change-transform {
+    @apply will-change-transform;
+  }
+  
+  .will-change-opacity {
+    @apply will-change-opacity;
+  }
+  
+  /* Accessibility Utilities */
+  .sr-only {
+    @apply absolute w-px h-px p-0 -m-px overflow-hidden whitespace-nowrap border-0;
+  }
+  
+  .focus-visible {
+    @apply focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2;
+  }
+  
+  /* Custom Spacing Utilities */
+  .space-football {
+    @apply space-y-4;
+  }
+  
+  .space-stadium {
+    @apply space-y-6;
+  }
+  
+  .space-video {
+    @apply space-y-2;
+  }
+  
+  /* Custom Typography Utilities */
+  .text-football-heading {
+    @apply text-2xl font-bold text-football-green-600;
+  }
+  
+  .text-stadium-subheading {
+    @apply text-lg font-semibold text-football-stadium-700;
+  }
+  
+  .text-live-indicator {
+    @apply text-sm font-bold text-live-red uppercase tracking-wider;
+  }
+
+  /* Scrollbar Utilities */
+  .scrollbar-hide {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+  }
+  
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;  /* Chrome, Safari and Opera */
+  }
+}

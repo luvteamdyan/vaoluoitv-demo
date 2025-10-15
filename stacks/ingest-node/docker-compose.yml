@@ -1,0 +1,88 @@
+services:
+  srs:
+    image: ossrs/srs:5
+    container_name: srs-ingest
+    restart: unless-stopped
+    ports:
+      - "1935:1935"
+      - "8080:8080"
+      - "1985:1985"
+    volumes:
+      - ./srs/srs.conf:/usr/local/srs/conf/srs.conf
+      - srs-logs:/usr/local/srs/objs
+    tmpfs:
+      - /dev/shm/flv-streams:rw,noexec,nosuid,size=2g
+      - /tmp:rw,noexec,nosuid,size=1g
+    environment:
+      - SRS_LOG_LEVEL=info
+      - SRS_MAX_CONNECTIONS=1000
+      - SRS_WORKER_THREADS=auto
+      - BACKEND_API_URL=http://api.vaoluoitv.com
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:1985/api/v1/versions"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.srs.entrypoints=websecure
+      - traefik.http.routers.srs.rule=Host(`ingest.vaoluoitv.com`)
+      - traefik.http.routers.srs.tls=true
+      - traefik.http.routers.srs.tls.certresolver=letsencrypt
+      - traefik.http.services.srs.loadbalancer.server.port=8080
+      - traefik.http.services.srs.loadbalancer.server.scheme=http
+    networks:
+      - ingest-network
+
+  traefik:
+    image: traefik:v3.5
+    container_name: ingest-traefik
+    restart: unless-stopped
+    command:
+      - --api.dashboard=true
+      - --api.debug=true
+      - --api.insecure=true
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=ingest-network
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
+      - --certificatesresolvers.letsencrypt.acme.email=luvteam.lee@gmail.com
+      - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge=true
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --log.level=INFO
+      - --accesslog=true
+      - --accesslog.filepath=/var/log/traefik/access.log
+      - --accesslog.format=json
+      - --metrics.prometheus=true
+      - --metrics.prometheus.addEntryPointsLabels=true
+      - --metrics.prometheus.addServicesLabels=true
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/logs:/var/log/traefik
+      - ./traefik/letsencrypt:/letsencrypt
+      - ./traefik/dynamic.yml:/etc/traefik/dynamic/dynamic.yml:ro
+    networks:
+      - ingest-network
+    labels:
+      - traefik.enable=false
+
+volumes:
+  srs-logs:
+    driver: local
+
+networks:
+  ingest-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16

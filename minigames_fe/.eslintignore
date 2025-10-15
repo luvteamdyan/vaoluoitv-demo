@@ -1,0 +1,16 @@
+# Ignore game files in public directory
+public/games/**/*.js
+public/shared/**/*.js
+
+# Ignore build outputs
+.next/
+out/
+build/
+dist/
+
+# Ignore node modules
+node_modules/
+
+# Ignore other generated files
+*.tsbuildinfo
+next-env.d.ts

@@ -1,0 +1,101 @@
+/* Custom Component Styles */
+@layer components {
+  /* Football Theme Components */
+  .football-card {
+    @apply bg-card border border-border rounded-lg shadow-stadium hover:shadow-football transition-all duration-300;
+  }
+  
+  .football-button {
+    @apply bg-football-green-500 hover:bg-football-green-600 text-white font-medium px-4 py-2 rounded-md transition-colors duration-200;
+  }
+  
+  .football-button-secondary {
+    @apply bg-football-stadium-100 hover:bg-football-stadium-200 text-football-stadium-800 font-medium px-4 py-2 rounded-md transition-colors duration-200;
+  }
+  
+  /* Live Stream Components */
+  .live-indicator {
+    @apply bg-live-red text-white px-2 py-1 rounded-full text-xs font-bold animate-pulse;
+  }
+  
+  .video-player {
+    @apply bg-black rounded-lg shadow-video overflow-hidden;
+  }
+  
+  .video-controls {
+    @apply bg-gradient-to-t from-black/80 to-transparent p-4;
+  }
+  
+  /* Chat Components */
+  .chat-message {
+    @apply p-3 rounded-lg mb-2 max-w-xs;
+  }
+  
+  .chat-message-user {
+    @apply bg-chat-user text-white ml-auto;
+  }
+  
+  .chat-message-system {
+    @apply bg-chat-system text-white;
+  }
+  
+  .chat-message-admin {
+    @apply bg-chat-admin text-white;
+  }
+  
+  .chat-message-moderator {
+    @apply bg-chat-moderator text-white;
+  }
+  
+  /* Stadium/Field Components */
+  .stadium-seat {
+    @apply w-4 h-4 rounded-sm border border-football-stadium-300 hover:bg-football-green-200 transition-colors duration-200;
+  }
+  
+  .field-line {
+    @apply border-2 border-white/30;
+  }
+  
+  /* Team Colors */
+  .team-red {
+    @apply bg-football-team-red text-white;
+  }
+  
+  .team-blue {
+    @apply bg-football-team-blue text-white;
+  }
+  
+  .team-yellow {
+    @apply bg-football-team-yellow text-black;
+  }
+  
+  .team-orange {
+    @apply bg-football-team-orange text-white;
+  }
+  
+  .team-purple {
+    @apply bg-football-team-purple text-white;
+  }
+  
+  .team-pink {
+    @apply bg-football-team-pink text-white;
+  }
+  
+  /* Responsive Grid */
+  .football-grid {
+    @apply grid gap-4 mobile:grid-cols-1 tablet:grid-cols-2 desktop:grid-cols-3;
+  }
+  
+  .video-grid {
+    @apply grid gap-2 mobile:grid-cols-1 tablet:grid-cols-2 desktop:grid-cols-4;
+  }
+  
+  /* Loading States */
+  .loading-skeleton {
+    @apply bg-muted animate-pulse rounded;
+  }
+  
+  .loading-spinner {
+    @apply animate-spin rounded-full border-2 border-muted border-t-football-green-500;
+  }
+}

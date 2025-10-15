@@ -1,0 +1,130 @@
+/* Football Livestream Custom CSS Variables */
+:root {
+  /* Football Theme Variables */
+  --football-primary: oklch(0.646 0.222 41.116);
+  --football-primary-foreground: oklch(0.985 0 0);
+  --football-secondary: oklch(0.6 0.118 184.704);
+  --football-secondary-foreground: oklch(0.985 0 0);
+  --football-accent: oklch(0.398 0.07 227.392);
+  --football-accent-foreground: oklch(0.985 0 0);
+  
+  /* Field Colors */
+  --field-primary: oklch(0.828 0.189 84.429);
+  --field-secondary: oklch(0.769 0.188 70.08);
+  --field-accent: oklch(0.646 0.222 41.116);
+  
+  /* Stadium Colors */
+  --stadium-primary: oklch(0.647 0 0);
+  --stadium-secondary: oklch(0.475 0 0);
+  --stadium-accent: oklch(0.334 0 0);
+  
+  /* Live Stream Colors */
+  --live-primary: oklch(0.577 0.245 27.325);
+  --live-secondary: oklch(0.704 0.191 22.216);
+  --live-accent: oklch(0.8 0.2 15);
+  
+  /* Team Colors */
+  --team-red: oklch(0.577 0.245 27.325);
+  --team-blue: oklch(0.488 0.243 264.376);
+  --team-yellow: oklch(0.769 0.188 70.08);
+  --team-orange: oklch(0.704 0.191 22.216);
+  --team-purple: oklch(0.627 0.265 303.9);
+  --team-pink: oklch(0.645 0.246 16.439);
+  
+  /* Chat Colors */
+  --chat-user: oklch(0.488 0.243 264.376);
+  --chat-system: oklch(0.475 0 0);
+  --chat-admin: oklch(0.577 0.245 27.325);
+  --chat-moderator: oklch(0.769 0.188 70.08);
+  
+  /* Video Player Colors */
+  --video-background: oklch(0.145 0 0);
+  --video-controls: oklch(0.205 0 0);
+  --video-overlay: oklch(0 0 0 / 0.5);
+  
+  /* Animation Durations */
+  --animation-fast: 150ms;
+  --animation-normal: 300ms;
+  --animation-slow: 500ms;
+  --animation-slower: 800ms;
+  
+  /* Animation Easing */
+  --ease-spring: cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  --ease-bounce: cubic-bezier(0.68, -0.6, 0.32, 1.6);
+  --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-snappy: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  
+  /* Spacing Scale */
+  --space-football: 1rem;
+  --space-stadium: 1.5rem;
+  --space-video: 0.5rem;
+  --space-chat: 0.75rem;
+  
+  /* Border Radius Scale */
+  --radius-football: 0.5rem;
+  --radius-stadium: 0.75rem;
+  --radius-video: 0.375rem;
+  --radius-chat: 0.625rem;
+  
+  /* Shadow Scale */
+  --shadow-football: 0 4px 6px -1px rgba(34, 197, 94, 0.1), 0 2px 4px -1px rgba(34, 197, 94, 0.06);
+  --shadow-stadium: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-live: 0 0 20px rgba(239, 68, 68, 0.3);
+  --shadow-video: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  
+  /* Z-Index Scale */
+  --z-dropdown: 1000;
+  --z-sticky: 1020;
+  --z-fixed: 1030;
+  --z-modal-backdrop: 1040;
+  --z-modal: 1050;
+  --z-popover: 1060;
+  --z-tooltip: 1070;
+  --z-toast: 1080;
+}
+
+/* Dark Mode Variables */
+.dark {
+  --football-primary: oklch(0.769 0.188 70.08);
+  --football-primary-foreground: oklch(0.145 0 0);
+  --football-secondary: oklch(0.696 0.17 162.48);
+  --football-secondary-foreground: oklch(0.145 0 0);
+  --football-accent: oklch(0.769 0.188 70.08);
+  --football-accent-foreground: oklch(0.145 0 0);
+  
+  --field-primary: oklch(0.627 0.265 303.9);
+  --field-secondary: oklch(0.645 0.246 16.439);
+  --field-accent: oklch(0.488 0.243 264.376);
+  
+  --stadium-primary: oklch(0.985 0 0);
+  --stadium-secondary: oklch(0.708 0 0);
+  --stadium-accent: oklch(0.556 0 0);
+  
+  --live-primary: oklch(0.704 0.191 22.216);
+  --live-secondary: oklch(0.8 0.2 15);
+  --live-accent: oklch(0.9 0.25 10);
+  
+  --video-background: oklch(0.145 0 0);
+  --video-controls: oklch(0.205 0 0);
+  --video-overlay: oklch(0 0 0 / 0.7);
+}
+
+/* Reduced Motion Support */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --animation-fast: 0ms;
+    --animation-normal: 0ms;
+    --animation-slow: 0ms;
+    --animation-slower: 0ms;
+  }
+}
+
+/* High Contrast Support */
+@media (prefers-contrast: high) {
+  :root {
+    --football-primary: oklch(0.2 0 0);
+    --football-primary-foreground: oklch(0.98 0 0);
+    --football-secondary: oklch(0.3 0 0);
+    --football-secondary-foreground: oklch(0.98 0 0);
+  }
+}

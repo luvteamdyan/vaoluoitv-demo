@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+        <title>Vaoluoi Flappy Bird</title>
+        <link rel="stylesheet" href="style.css">
+        <link rel="stylesheet" href="milestone.css">
+        
+        <!-- Cookie Utils for cross-subdomain authentication -->
+        <script src="/shared/cookie-utils.js"></script>
+        <script src="/api/config"></script>
+        <script src="/shared/postmessage-auth.js"></script>
+        <script>
+            // Authentication Check - Redirect to login if not authenticated
+            (function() {
+                function checkAuth() {
+                    const token = window.CookieUtils ? window.CookieUtils.getAuthToken() : null;
+                    const user = window.CookieUtils ? window.CookieUtils.getUserData() : null;
+                    
+                    if (!token || !user) {
+                        // Redirect về trang chủ hoặc trang login của Next.js app
+                        window.location.href = '/';
+                        return;
+                    }
+                    
+                }
+                
+                // In iframe, wait for postMessage auth data (development)
+                if (window.self !== window.top) {
+                    // Wait for auth data or timeout after 2 seconds
+                    let authReceived = false;
+                    
+                    window.addEventListener('authDataReceived', function() {
+                        authReceived = true;
+                        checkAuth();
+                    });
+                    
+                    setTimeout(function() {
+                        if (!authReceived) {
+                            checkAuth();
+                        }
+                    }, 2000);
+                } else {
+                    // Not in iframe, check immediately
+                    checkAuth();
+                }
+            })();
+        </script>
+        <script>
+            // Clear game state khi page load để buộc user chơi từ đầu
+            // Giữ highScore để user vẫn thấy được điểm cao nhất
+            (function() {
+                // Không cần clear sessionStorage vì Flappy Bird tự động restart
+                
+                // Clear state khi user thoát trang (refresh/close/navigate away)
+                window.addEventListener('beforeunload', function() {
+                    // Có thể thêm logic clear ở đây nếu cần
+                });
+            })();
+        </script>
+        <script src="milestone_tracker.js"></script>
+        <script src="index.js" defer></script>
+        <script>
+            // Initialize milestone tracker after DOM is ready
+            window.addEventListener('load', function() {
+                // Get user info from cookies (cross-subdomain)
+                const user = window.CookieUtils ? window.CookieUtils.getUserData() : null;
+                if (user && window.flappyMilestoneTracker) {
+                    try {
+                        const apiBaseUrl = window.MINIGAMES_CONFIG?.API_BASE_URL || 'https://games-api.vaoluoitv.com';
+                        window.flappyMilestoneTracker.init(user.id, apiBaseUrl);
+                    } catch (e) {
+                        console.error('Failed to initialize flappy milestone tracker:', e);
+                    }
+                }
+            });
+        </script>
+    </head>
+    <body>
+            <canvas id="board"></canvas>
+    </body>
+</html>

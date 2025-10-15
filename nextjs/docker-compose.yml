@@ -1,0 +1,91 @@
+services:
+
+  vaoluoi-admin-dashboard:
+    image: devlee21/admin-dashboard:latest
+    container_name: vaoluoi-admin-dashboard
+    restart: unless-stopped
+    ports:
+      - "8386:8386"
+    networks:
+      - vaoluoi-network
+      - luck8_luck8-network
+    environment:
+      - NODE_ENV=production
+      - NEXT_TELEMETRY_DISABLED=1
+      - NEXT_PUBLIC_BACKEND_URL=https://api.vaoluoitv.com/api/v1
+      - NEXT_PUBLIC_MATCH_URL=https://api.vaoluoitv.com/api/v1
+      - NEXT_PUBLIC_STREAM_KEY_URL=https://api.vaoluoitv.com/api/v1
+      - NEXT_PUBLIC_UPLOAD_URL=https://api.vaoluoitv.com/api/v1
+      - NEXT_PUBLIC_ADS_CONFIG_URL=https://api.vaoluoitv.com/api/v1
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8386/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    user: "1001:1001"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  vaoluoi-frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vaoluoi-frontend
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    networks:
+      - vaoluoi-network
+      - luck8_luck8-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    user: "1001:1001"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+networks:
+  vaoluoi-network:
+    driver: bridge
+  luck8_luck8-network:
+    external: true

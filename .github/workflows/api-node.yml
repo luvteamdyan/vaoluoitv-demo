@@ -1,0 +1,277 @@
+name: CI/CD Pipeline for Vaoluoi API
+
+on:
+  push:
+    branches: [ main, develop, 'release/**' ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  SECURITY_IMAGE_NAME: ${{ github.repository }}-security
+  UPLOAD_IMAGE_NAME: ${{ github.repository }}-upload
+
+jobs:
+  # Detect changes to optimize builds
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      main-api-changed: ${{ steps.changes.outputs.main-api }}
+      security-api-changed: ${{ steps.changes.outputs.security-api }}
+      upload-api-changed: ${{ steps.changes.outputs.upload-api }}
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dorny/paths-filter@v2
+      id: changes
+      with:
+        filters: |
+          main-api:
+            - 'vaoluoi_be/**'
+          security-api:
+            - 'vaoluoi_secure_api/**'
+          upload-api:
+            - 'vaoluoi_upload/**'
+
+  # Check & lint Main API (only if changed)
+  lint-main-api:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.main-api-changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: './vaoluoi_be/package-lock.json'
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: ./vaoluoi_be
+
+      - name: Run ESLint
+        run: npm run lint
+        working-directory: ./vaoluoi_be
+
+      - name: Build project
+        run: npm run build
+        working-directory: ./vaoluoi_be
+
+  # Check & lint Security API (only if changed)
+  lint-security-api:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.security-api-changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: './vaoluoi_secure_api/package-lock.json'
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: ./vaoluoi_secure_api
+
+      - name: Run ESLint
+        run: npm run lint
+        working-directory: ./vaoluoi_secure_api
+
+      - name: Build project
+        run: npm run build
+        working-directory: ./vaoluoi_secure_api
+
+  # Check & lint Upload API (only if changed)
+  lint-upload-api:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.upload-api-changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: './vaoluoi_upload/package-lock.json'
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: ./vaoluoi_upload
+
+      - name: Run ESLint
+        run: npm run lint
+        working-directory: ./vaoluoi_upload
+
+      - name: Build project
+        run: npm run build
+        working-directory: ./vaoluoi_upload
+
+  # Build Main API (only if changed and on main/release)
+  build-main-api:
+    needs: [detect-changes, lint-main-api]
+    if: always() && needs.detect-changes.outputs.main-api-changed == 'true' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ./vaoluoi_be
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Build Security API (only if changed and on main/release)
+  build-security-api:
+    needs: [detect-changes, lint-security-api]
+    if: always() && needs.detect-changes.outputs.security-api-changed == 'true' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.SECURITY_IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ./vaoluoi_secure_api
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Build Upload API (only if changed and on main/release)
+  build-upload-api:
+    needs: [detect-changes, lint-upload-api]
+    if: always() && needs.detect-changes.outputs.upload-api-changed == 'true' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.UPLOAD_IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ./vaoluoi_upload
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Deploy (only on main/release and if any API changed)
+  deploy:
+    needs: [detect-changes, build-main-api, build-security-api, build-upload-api]
+    if: always() && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/')) && (needs.detect-changes.outputs.main-api-changed == 'true' || needs.detect-changes.outputs.security-api-changed == 'true' || needs.detect-changes.outputs.upload-api-changed == 'true')
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Deploy to server
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.API_HOST }}
+        username: ${{ secrets.API_USERNAME }}
+        key: ${{ secrets.API_SSH_KEY }}
+        port: ${{ secrets.API_PORT }}
+        script: |
+          cd /opt/vaoluoitv/
+          sudo git pull
+          
+          echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          
+          cd /opt/vaoluoitv/server-config/api-node
+          
+          if [ ! -f .env.prod ]; then
+            echo "Error: .env.prod file not found!"
+            exit 1
+          fi
+
+          # Restart only services that changed
+          if [[ "${{ needs.detect-changes.outputs.main-api-changed }}" == "true" ]]; then
+            echo "Updating Main API..."
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            docker compose --env-file .env.prod -f docker-compose.prod.yml up -d vaoluoi-api
+          fi
+          
+          if [[ "${{ needs.detect-changes.outputs.security-api-changed }}" == "true" ]]; then
+            echo "Updating Security API..."
+            docker pull ${{ env.REGISTRY }}/${{ env.SECURITY_IMAGE_NAME }}:latest
+            docker compose --env-file .env.prod -f docker-compose.prod.yml up -d vaoluoi-security-api
+          fi
+
+          if [[ "${{ needs.detect-changes.outputs.upload-api-changed }}" == "true" ]]; then
+            echo "Updating Upload API..."
+            docker pull ${{ env.REGISTRY }}/${{ env.UPLOAD_IMAGE_NAME }}:latest
+            docker compose --env-file .env.prod -f docker-compose.prod.yml up -d vaoluoi-upload-api
+          fi
+
+          # Clean up old images
+          docker image prune -f

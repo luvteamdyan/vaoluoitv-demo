@@ -1,0 +1,167 @@
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  font-size: 150%;
+}
+
+body {
+  display: grid;
+  min-height: 100vh;
+  justify-content: center;
+  justify-items: center;
+  margin: 0;
+  padding: 0;
+}
+
+main {
+  animation: fadeIn 100ms;
+  min-height: 18.5rem;
+  margin: 1rem 0;
+}
+
+p {
+  padding: 0 1rem;
+}
+
+main > p {
+  text-align: center;
+}
+
+footer {
+  margin-top: 3rem;
+  align-self: end;
+  font-size: smaller;
+}
+footer > ul {
+  display: flex;
+  flex-wrap: wrap;
+  list-style: none;
+  padding: 0;
+  justify-content: center;
+  width: 100vw;
+}
+footer li:not(:last-child)::after {
+  content: "|";
+  margin: 1rem;
+}
+footer a,
+footer a:visited {
+  color: inherit;
+}
+
+.grid {
+  position: relative;
+  display: grid;
+  width: min-content;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+
+  background-color: #fff;
+  color: #000;
+}
+
+.grid.winning::after {
+  content: "You win!";
+
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;
+
+  display: flex;
+  align-items: center;
+  text-align: center;
+
+  text-transform: uppercase;
+  background-color: #cfce;
+  color: #222;
+  font-size: 4rem;
+  font-weight: bold;
+
+  animation: fadeIn 2s;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  25% {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.grid * {
+  border: 1px solid currentColor;
+}
+
+.grid .grid {
+  border-width: 2px;
+}
+
+.grid label {
+  display: contents;
+}
+.sr-only {
+  display: none;
+}
+
+.grid input {
+  max-width: 10vw;
+  width: 2rem;
+  height: 2rem;
+  font-size: 1.25rem;
+  text-align: center;
+  -moz-appearance: textfield;
+  appearance: textfield;
+  border-radius: 0;
+  padding: 0;
+  transition: background-color 100ms;
+}
+.grid input::-webkit-outer-spin-button,
+.grid input::-webkit-inner-spin-button {
+  display: none;
+}
+
+.grid input:read-only {
+  font-weight: bold;
+  cursor: default;
+}
+.grid input:read-only:focus {
+  outline: 1px solid;
+}
+
+button {
+  font-size: 1rem;
+}
+
+.wrong-value {
+  background-color: #fcc;
+}
+
+@media screen and (prefers-color-scheme: dark) {
+  :root {
+    color: #fff;
+    background-color: #222;
+  }
+}
+
+@media print {
+  aside,
+  footer,
+  p,
+  .grid.winning::after {
+    display: none;
+  }
+
+  body::after {
+    content: "\A9 2020, aduh95";
+    align-self: end;
+    font-size: small;
+  }
+}

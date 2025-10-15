@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Luck8 Event 2048</title>
+
+  <link href="style/main.css" rel="stylesheet" type="text/css">
+  <link href="style/milestone.css" rel="stylesheet" type="text/css">
+  <link rel="shortcut icon" href="favicon.ico">
+  <link rel="apple-touch-icon" href="meta/apple-touch-icon.png">
+  <link rel="apple-touch-startup-image" href="meta/apple-touch-startup-image-640x1096.png" media="(device-width: 320px) and (device-height: 568px) and (-webkit-device-pixel-ratio: 2)"> <!-- iPhone 5+ -->
+  <link rel="apple-touch-startup-image" href="meta/apple-touch-startup-image-640x920.png"  media="(device-width: 320px) and (device-height: 480px) and (-webkit-device-pixel-ratio: 2)"> <!-- iPhone, retina -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+
+  <meta name="HandheldFriendly" content="True">
+  <meta name="MobileOptimized" content="320">
+  <meta name="viewport" content="width=device-width, target-densitydpi=160dpi, initial-scale=1.0, maximum-scale=1, user-scalable=no, minimal-ui">
+</head>
+<body>
+  <div class="container">
+    <div class="heading">
+      <h1 class="title">Luck8</h1>
+      <div class="scores-container">
+        <div class="score-container">0</div>
+        <div class="best-container">0</div>
+      </div>
+    </div>
+
+    <div class="above-game">
+      <p class="game-intro">Đạt mốc để <strong>nhận lượt quay may mắn!</strong></p>
+      <a class="restart-button">Game mới</a>
+    </div>
+
+    <div class="game-container">
+      <div class="game-message">
+        <p></p>
+        <div class="lower">
+	        <a class="keep-playing-button">Tiếp tục</a>
+          <a class="retry-button">Thử lại</a>
+        </div>
+      </div>
+
+      <div class="grid-container">
+        <div class="grid-row">
+          <div class="grid-cell"></div>
+          <div class="grid-cell"></div>
+          <div class="grid-cell"></div>
+          <div class="grid-cell"></div>
+        </div>
+        <div class="grid-row">
+          <div class="grid-cell"></div>
+          <div class="grid-cell"></div>
+          <div class="grid-cell"></div>
+          <div class="grid-cell"></div>
+        </div>
+        <div class="grid-row">
+          <div class="grid-cell"></div>
+          <div class="grid-cell"></div>
+          <div class="grid-cell"></div>
+          <div class="grid-cell"></div>
+        </div>
+        <div class="grid-row">
+          <div class="grid-cell"></div>
+          <div class="grid-cell"></div>
+          <div class="grid-cell"></div>
+          <div class="grid-cell"></div>
+        </div>
+      </div>
+
+      <div class="tile-container">
+
+      </div>
+    </div>
+
+    <p class="game-explanation">
+      <strong class="important">Cách chơi:</strong> Dùng <strong>các nút mũi tên</strong> để di chuyển các box. Khi hai box cùng số kế nhau, chúng <strong>sẽ hợp nhất thành một box!</strong>
+    </p>
+
+  </div>
+
+  <!-- Cookie Utils for cross-subdomain authentication -->
+  <script src="/shared/cookie-utils.js"></script>
+  <script src="/api/config"></script>
+  <script src="/shared/postmessage-auth.js"></script>
+  <script>
+    // Authentication Check - Redirect to login if not authenticated
+    (function() {
+      function checkAuth() {
+        const token = window.CookieUtils ? window.CookieUtils.getAuthToken() : null;
+        const user = window.CookieUtils ? window.CookieUtils.getUserData() : null;
+        
+        if (!token || !user) {
+          // Redirect về trang chủ hoặc trang login của Next.js app
+          window.location.href = '/';
+          return;
+        }
+        
+      }
+      
+      // In iframe, wait for postMessage auth data (development)
+      if (window.self !== window.top) {
+        // Wait for auth data or timeout after 2 seconds
+        let authReceived = false;
+        
+        window.addEventListener('authDataReceived', function() {
+          authReceived = true;
+          checkAuth();
+        });
+        
+        setTimeout(function() {
+          if (!authReceived) {
+            checkAuth();
+          }
+        }, 2000);
+      } else {
+        // Not in iframe, check immediately
+        checkAuth();
+      }
+    })();
+  </script>
+  
+  <script src="js/bind_polyfill.js"></script>
+  <script src="js/classlist_polyfill.js"></script>
+  <script src="js/animframe_polyfill.js"></script>
+  <script src="js/keyboard_input_manager.js"></script>
+  <script src="js/html_actuator.js"></script>
+  <script src="js/grid.js"></script>
+  <script src="js/tile.js"></script>
+  <script src="js/local_storage_manager.js"></script>
+  <script>
+    // Clear game state khi page load để buộc user chơi từ đầu
+    // Giữ bestScore để user vẫn thấy được điểm cao nhất
+    (function() {
+      if (localStorage) {
+        localStorage.removeItem('gameState');
+      }
+      
+      // Cũng clear state khi user thoát trang (refresh/close/navigate away)
+      window.addEventListener('beforeunload', function() {
+        if (localStorage) {
+          localStorage.removeItem('gameState');
+        }
+      });
+      
+      // Clear state khi user navigate away (dùng cho mobile/SPA)
+      window.addEventListener('pagehide', function() {
+        if (localStorage) {
+          localStorage.removeItem('gameState');
+        }
+      });
+    })();
+  </script>
+  <script src="js/milestone_tracker.js"></script>
+  <script src="js/game_manager.js"></script>
+  <script src="js/application.js"></script>
+  <script>
+    // Initialize milestone tracker
+    (function() {
+      // Get user info from cookies (cross-subdomain)
+      const user = window.CookieUtils ? window.CookieUtils.getUserData() : null;
+      if (user && window.milestoneTracker) {
+        try {
+          const apiBaseUrl = window.MINIGAMES_CONFIG?.API_BASE_URL || '';
+          window.milestoneTracker.init(user.id, apiBaseUrl);
+        } catch (e) {
+          console.error('Failed to initialize milestone tracker:', e);
+        }
+      }
+    })();
+  </script>
+</body>
+</html>

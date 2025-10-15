@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Luck8 Event - Pikachu Matching</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Cookie Utils for cross-subdomain authentication -->
+    <script src="/shared/cookie-utils.js"></script>
+    <script src="/api/config"></script>
+    <script src="/shared/postmessage-auth.js"></script>
+    <script>
+        // Authentication Check - Redirect to login if not authenticated
+        (function() {
+            function checkAuth() {
+                const token = window.CookieUtils ? window.CookieUtils.getAuthToken() : null;
+                const user = window.CookieUtils ? window.CookieUtils.getUserData() : null;
+                
+                if (!token || !user) {
+                    // Redirect về trang chủ hoặc trang login của Next.js app
+                    window.location.href = '/';
+                    return;
+                }
+                
+            }
+            
+            // In iframe, wait for postMessage auth data (development)
+            if (window.self !== window.top) {
+                // Wait for auth data or timeout after 2 seconds
+                let authReceived = false;
+                
+                window.addEventListener('authDataReceived', function() {
+                    authReceived = true;
+                    checkAuth();
+                });
+                
+                setTimeout(function() {
+                    if (!authReceived) {
+                        checkAuth();
+                    }
+                }, 2000);
+            } else {
+                // Not in iframe, check immediately
+                checkAuth();
+            }
+        })();
+    </script>
+</head>
+<body>
+    <div class="game-container">
+        <!-- Background decoration -->
+        <div class="background-decoration">
+            <div class="bg-circle bg-circle-1"></div>
+            <div class="bg-circle bg-circle-2"></div>
+            <div class="bg-circle bg-circle-3"></div>
+        </div>
+
+        <!-- Main Content Area -->
+        <div class="main-content">
+            <!-- Left Side - Header -->
+            <div class="left-panel">
+                <div class="header-content">
+                    <h1 class="game-title">Luck8 Event - Pikachu Matching</h1>
+                </div>
+            </div>
+
+            <!-- Center - Game Board -->
+            <div class="center-panel">
+                <div class="game-board-wrapper">
+                    <div class="game-board" id="gameBoard">
+                        <!-- Grid sẽ được tạo bằng JavaScript -->
+                    </div>
+                    <canvas id="linkLineCanvas"></canvas>
+                </div>
+            </div>
+
+            <!-- Right Side - Game Controls -->
+            <div class="right-panel">
+                <div class="game-controls">
+                    <button class="btn btn-primary" id="newGameBtn">Game Mới</button>
+                    <button class="btn btn-secondary" id="pauseBtn">Tạm Dừng</button>
+                    <button class="btn btn-secondary" id="hintBtn">Gợi Ý (5)</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Game Over Modal -->
+        <div class="modal-overlay" id="gameOverModal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="modal-title">Chiến Thắng!</h2>
+                </div>
+                <div class="modal-body">
+                    <div class="final-stats">
+                        <div class="final-stat">
+                            <span class="final-stat-label">Pokemon đã ghép:</span>
+                            <span class="final-stat-value" id="matchesCount">0</span>
+                        </div>
+                        <div class="final-stat">
+                            <span class="final-stat-label">Trạng thái:</span>
+                            <span class="final-stat-value">Hoàn thành!</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-primary" id="restartBtn">Chơi Lại</button>
+                    <button class="btn btn-secondary" id="closeModalBtn">Đóng</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pause Modal -->
+        <div class="modal-overlay" id="pauseModal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="modal-title">Tạm Dừng</h2>
+                </div>
+                <div class="modal-body">
+                    <p>Game đang tạm dừng. Nhấn "Tiếp Tục" để quay lại game.</p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-primary" id="resumeBtn">Tiếp Tục</button>
+                    <button class="btn btn-secondary" id="mainMenuBtn">Menu Chính</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Hint Effect -->
+        <div class="hint-overlay" id="hintOverlay"></div>
+    </div>
+
+    <script src="milestone_tracker.js"></script>
+    <script src="game.js"></script>
+    
+    <script>
+        // Initialize milestone tracker
+        (function() {
+            const user = window.CookieUtils ? window.CookieUtils.getUserData() : null;
+            
+            if (user && user.id && window.pikachuMilestoneTracker) {
+                const apiBaseUrl = window.MINIGAMES_CONFIG?.API_BASE_URL || 'https://games-api.vaoluoitv.com';
+                window.pikachuMilestoneTracker.init(user.id, apiBaseUrl);
+            } else {
+                console.warn('[Pikachu Matching] User not found or milestone tracker not loaded');
+            }
+        })();
+        
+        // Background Music Control
+        (function() {
+            const musicToggleBtn = document.getElementById('musicToggleBtn');
+            const backgroundMusic = document.getElementById('backgroundMusic');
+            const musicIcon = document.getElementById('musicIcon');
+            
+            // Kiểm tra trạng thái nhạc từ localStorage
+            let isMusicOn = localStorage.getItem('pikachuMusicOn') !== 'false';
+            
+            // Cập nhật UI
+            function updateMusicUI() {
+                if (isMusicOn) {
+                    musicIcon.textContent = '🔊';
+                    backgroundMusic.play().catch(err => {
+                        console.log('Cannot play music:', err);
+                    });
+                } else {
+                    musicIcon.textContent = '🔇';
+                    backgroundMusic.pause();
+                }
+            }
+            
+            // Xử lý sự kiện click
+            musicToggleBtn.addEventListener('click', () => {
+                isMusicOn = !isMusicOn;
+                localStorage.setItem('pikachuMusicOn', isMusicOn);
+                updateMusicUI();
+            });
+            
+            // Khởi tạo UI
+            updateMusicUI();
+            
+            // Tự động phát nhạc khi user tương tác lần đầu (yêu cầu của trình duyệt)
+            let userInteracted = false;
+            document.addEventListener('click', () => {
+                if (!userInteracted && isMusicOn) {
+                    backgroundMusic.play().catch(err => {
+                        console.log('Cannot play music:', err);
+                    });
+                    userInteracted = true;
+                }
+            }, { once: true });
+        })();
+    </script>
+</body>
+</html>

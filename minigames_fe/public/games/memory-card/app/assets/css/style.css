@@ -1,0 +1,933 @@
+@import url("https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&family=Sedgwick+Ave+Display&display=swap");
+
+* {
+  box-sizing: border-box;
+  font-family: "Roboto", sans-serif;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  /* Enable iframe scaling */
+  overflow: hidden;
+}
+
+body {
+  background: #1f1740
+    url("https://luck8event.com/page-bg.jpg");
+  /* Contain để hiển thị toàn bộ hình ảnh không bị cắt */
+  -webkit-background-size: cover;
+  -moz-background-size: cover;
+  -o-background-size: cover;
+  background-size: cover;
+  /* Background image doesn't tile */
+  background-repeat: no-repeat;
+  /* Background image is centered vertically and horizontally at all times */
+  background-position: center center;
+  /* Background image is fixed in the viewport so that it doesn't move when the content's height is greater than the image's height */
+  background-attachment: fixed;
+  /* Giữ độ nét của hình ảnh */
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+
+  display: flex;
+  flex-direction: column;
+  
+  /* Iframe scaling support */
+  transform-origin: top left;
+  transform: scale(1);
+  width: 1920px; /* Base design width */
+  height: 1080px; /* Base design height */
+  min-width: 1920px;
+  min-height: 1080px;
+}
+
+.content {
+  margin: 0 auto;
+  padding: 0;
+  flex: 1 0 auto;
+}
+
+.inline {
+  display: inline;
+}
+
+.uppercase {
+  text-transform: uppercase;
+}
+
+.modal {
+  width: 95%;
+}
+
+/*------------------------------------------------------ start modal -------------------*/
+
+div#startModal.modal.fade.show {
+  padding-right: 0;
+}
+
+#btnStartModal {
+  margin: auto;
+  display: block;
+  font-family: "Roboto Bold";
+  background-color: #daa520;
+  border-color: #daa520;
+  color: #000000;
+  font-weight: bold;
+  margin-top: 30%;
+}
+
+#startGameButton {
+  background-color: #daa520;
+  border-color: #daa520;
+  color: #000000;
+  font-weight: 700;
+}
+
+#btnStartModal:hover,
+#startGameButton:hover {
+  box-shadow: 0 0 15px #fafafa;
+}
+
+.modal-content {
+  text-align: center;
+  width: 100%;
+  margin: 0 auto;
+  border: solid 2px #daa520;
+  color: #daa520;
+}
+
+.modal-content h3 {
+  font-family: "Sedgwick Ave Display", cursive;
+  letter-spacing: 4px;
+}
+
+.modal-body {
+  background-color: #1f1740;
+}
+
+.btn-primary {
+  background-color: #0000ff;
+  border-color: #0000ff;
+}
+
+.btn-primary:hover {
+  color: #fafafa;
+  background-color: #0000ff;
+  border-color: #0000ff;
+}
+
+.btn-primary:not(:disabled):not(.disabled).active,
+.btn-primary:not(:disabled):not(.disabled):active,
+.show > .btn-primary.dropdown-toggle {
+  color: #fafafa;
+  background-color: #0000ff;
+  border-color: #0000ff;
+}
+
+.btn-primary:not(:disabled):not(.disabled).active:focus,
+.btn-primary:not(:disabled):not(.disabled):active:focus,
+.show > .btn-primary.dropdown-toggle:focus {
+  box-shadow: 0 0 0 0 transparent;
+}
+
+.btn-primary:focus {
+  box-shadow: 0 0 0 0.2rem transparent;
+}
+
+.btn-primary.focus,
+.btn-primary:focus {
+  color: #fafafa;
+  background-color: #0000ff;
+  border-color: #0000ff;
+}
+
+.btn-primary:not(:disabled):not(.disabled).active:focus,
+.btn-primary:not(:disabled):not(.disabled):active:focus,
+.show > .btn-primary.dropdown-toggle:focus {
+  box-shadow: 0 0 0 0.2rem transparent;
+}
+
+#startGameButton.focus,
+#btnStartModal.focus,
+#btnStartModal:focus {
+  box-shadow: 0 0 0 0.2rem #d39e0091;
+}
+
+/*------------------------------------------------------ header -------------------*/
+
+.header {
+  text-align: center;
+  color: #c1fc00;
+}
+
+.header-details h1 {
+  margin: 30px auto 30px auto;
+  font-family: "Roboto Bold";
+  letter-spacing: 4px;
+  font-size: 52px;
+  text-shadow: 2px 2px 4px #faffbe;
+}
+
+/*------------------------------------------------------ container-information -------------------*/
+
+.container-information {
+  text-align: center;
+}
+
+.badge {
+  padding-top: 0.55em;
+  padding-right: 0.8em;
+  padding-bottom: 0.55em;
+  padding-left: 0.8em;
+  margin-right: 30px;
+  background-color: #ff0000;
+}
+
+.badge.moves,
+.badge.levelTimer {
+  padding-top: 0.5em;
+  padding-bottom: 0.5em;
+}
+
+#restart {
+  margin-left: 90px;
+}
+
+#exit {
+  margin-left: 30px;
+}
+
+#restart:hover,
+#exit:hover {
+  box-shadow: 0 0 15px #fafafa;
+}
+
+/*------------------------------------------------------ container-cards -------------------*/
+
+.container-cards {
+  margin: 0 auto;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+  max-height: calc(100vh - 250px);
+  overflow: hidden;
+  /* Ensure proper positioning in iframe */
+  position: relative;
+  top: 0;
+}
+
+.card-details {
+  width: 100%;
+  max-width: 900px;
+  background: transparent;
+  padding: 20px;
+  border-color: transparent;
+  display: grid !important;
+  grid-template-columns: repeat(4, 1fr) !important;
+  gap: 10px;
+  margin: 0 auto;
+  justify-items: center;
+  align-items: center;
+}
+
+/* Level 4: 4 rows x 5 columns = 20 cards */
+.level-4 {
+  grid-template-columns: repeat(5, 1fr) !important;
+}
+
+/* Level 5: 4 rows x 6 columns = 24 cards */
+.level-5 {
+  grid-template-columns: repeat(6, 1fr) !important;
+}
+
+.card {
+  margin: 10px;
+  height: 150px;
+  width: 150px;
+  background: #c19f18 url("https://cdn.vaoluoitv.com/images/luck8.png");
+  -webkit-background-size: contain;
+  -moz-background-size: contain;
+  -o-background-size: contain;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center center;
+  border-radius: 8px;
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  box-shadow: 5px 2px 20px 0 rgba(46, 61, 73, 0.5);
+  transition: all 0.6s ease !important;
+}
+
+.card:hover {
+  cursor: pointer;
+  border: 5px solid #ebc13e;
+  box-shadow: 0 0 15px #fafafa;
+}
+
+.card.visible {
+  border: 5px solid #ebc13e;
+  box-shadow: 0 0 15px #fafafa;
+  /* Removed 3D transform to display numbers clearly */
+  transition: all 0.3s ease;
+}
+
+/* Level-based card sizing - Always 4 columns, increasing rows */
+/* Level 1: 8 cards (2x4) */
+.level-1 .card {
+  width: 150px !important;
+  height: 150px !important;
+  margin: 8px !important;
+}
+
+.level-1 .card.visible {
+  font-size: 48px !important;
+}
+
+/* Level 2: 12 cards (3x4) */
+.level-2 .card {
+  width: 140px !important;
+  height: 140px !important;
+  margin: 6px !important;
+}
+
+.level-2 .card.visible {
+  font-size: 44px !important;
+}
+
+/* Level 3: 16 cards (4x4) */
+.level-3 .card {
+  width: 130px !important;
+  height: 130px !important;
+  margin: 5px !important;
+}
+
+.level-3 .card.visible {
+  font-size: 40px !important;
+}
+
+/* Level 4: 20 cards (4x5) */
+.level-4 .card {
+  width: 110px !important;
+  height: 110px !important;
+  margin: 4px !important;
+}
+
+.level-4 .card.visible {
+  font-size: 36px !important;
+}
+
+/* Level 5: 24 cards (4x6) */
+.level-5 .card {
+  width: 100px !important;
+  height: 100px !important;
+  margin: 3px !important;
+}
+
+.level-5 .card.visible {
+  font-size: 32px !important;
+}
+
+/* Additional override for better specificity */
+.card-details.level-1 .card,
+.card-details.level-2 .card,
+.card-details.level-3 .card,
+.card-details.level-4 .card,
+.card-details.level-5 .card {
+  transition: all 0.3s ease !important;
+}
+
+/*------------------------------------------------------ footer -------------------*/
+
+.footer {
+  background-color: transparent;
+  color: #fafafa;
+  margin: 0 auto;
+  width: 100%;
+  justify-items: center;
+  display: grid;
+}
+
+.footer p {
+  margin-top: 20px;
+  margin-bottom: 0;
+}
+
+.footer-details a {
+  color: #fafafa;
+}
+
+/*------------------------------------------------------ footer -------------------*/
+
+/* Extra large devices (large desktops, 1200px and up) */
+@media (min-width: 1200px) {
+  .card-details {
+    max-width: 1100px;
+  }
+
+  .container-cards {
+    max-height: calc(100vh - 220px);
+  }
+
+  /* Level 1: 8 cards (2x4) */
+  .card-details.level-1 .card {
+    width: 170px !important;
+    height: 170px !important;
+    margin: 8px !important;
+  }
+
+  .card-details.level-1 .card.visible {
+    font-size: 60px !important;
+  }
+
+  /* Level 2: 12 cards (3x4) */
+  .card-details.level-2 .card {
+    width: 150px !important;
+    height: 150px !important;
+    margin: 6px !important;
+  }
+
+  .card-details.level-2 .card.visible {
+    font-size: 52px !important;
+  }
+
+  /* Level 3: 16 cards (4x4) */
+  .card-details.level-3 .card {
+    width: 140px !important;
+    height: 140px !important;
+    margin: 5px !important;
+  }
+
+  .card-details.level-3 .card.visible {
+    font-size: 48px !important;
+  }
+
+  /* Level 4: 20 cards (4x5) */
+  .card-details.level-4 {
+    grid-template-columns: repeat(5, 1fr) !important;
+  }
+
+  .card-details.level-4 .card {
+    width: 120px !important;
+    height: 120px !important;
+    margin: 4px !important;
+  }
+
+  .card-details.level-4 .card.visible {
+    font-size: 42px !important;
+  }
+
+  /* Level 5: 24 cards (4x6) */
+  .card-details.level-5 {
+    grid-template-columns: repeat(6, 1fr) !important;
+  }
+
+  .card-details.level-5 .card {
+    width: 110px !important;
+    height: 110px !important;
+    margin: 3px !important;
+  }
+
+  .card-details.level-5 .card.visible {
+    font-size: 38px !important;
+  }
+
+  .header-details h1 {
+    font-size: 48px;
+  }
+
+  .footer p {
+    font-size: 14px;
+  }
+
+  .badge {
+    margin-right: 40px;
+    font-size: 20px;
+  }
+
+  #restart {
+    margin-left: 100px;
+    font-size: 20px;
+  }
+
+  #exit {
+    margin-left: 40px;
+    font-size: 20px;
+  }
+
+  #btnStartModal {
+    font-size: 40px;
+  }
+
+  .modal-body form {
+    font-size: 20px;
+  }
+
+  #startGameButton {
+    font-size: 20px;
+  }
+
+  .modal-content h3 {
+    font-size: 32px;
+  }
+}
+
+/* Large devices (desktops, 992px and up) */
+@media (min-width: 992px) and (max-width: 1199.98px) {
+  .card-details {
+    max-width: 900px;
+  }
+
+  .container-cards {
+    max-height: calc(100vh - 230px);
+  }
+
+  /* Level 1: 8 cards */
+  .card-details.level-1 .card {
+    width: 160px;
+    height: 160px;
+  }
+
+  .card-details.level-1 .card.visible {
+    font-size: 54px !important;
+  }
+
+  /* Level 2: 12 cards */
+  .card-details.level-2 .card {
+    width: 140px;
+    height: 140px;
+  }
+
+  .card-details.level-2 .card.visible {
+    font-size: 48px !important;
+  }
+
+  /* Level 3: 16 cards */
+  .card-details.level-3 .card {
+    width: 120px;
+    height: 120px;
+  }
+
+  .card-details.level-3 .card.visible {
+    font-size: 42px !important;
+  }
+
+  /* Level 4: 20 cards */
+  .card-details.level-4 .card {
+    width: 100px;
+    height: 100px;
+  }
+
+  .card-details.level-4 .card.visible {
+    font-size: 36px !important;
+  }
+
+  /* Level 5: 24 cards */
+  .card-details.level-5 .card {
+    width: 90px;
+    height: 90px;
+  }
+
+  .card-details.level-5 .card.visible {
+    font-size: 32px !important;
+  }
+
+  .header-details h1 {
+    font-size: 48px;
+  }
+
+  .footer p {
+    font-size: 14px;
+  }
+
+  .badge {
+    margin-right: 36px;
+    font-size: 18px;
+  }
+
+  #restart {
+    margin-left: 80px;
+    font-size: 18px;
+  }
+
+  #exit {
+    margin-left: 30px;
+    font-size: 18px;
+  }
+
+  #btnStartModal {
+    font-size: 40px;
+  }
+
+  .modal-body form {
+    font-size: 18px;
+  }
+
+  #startGameButton {
+    font-size: 18px;
+  }
+
+  .modal-content h3 {
+    font-size: 30px;
+  }
+}
+
+/* md - Medium devices (tablets, 768px and up) */
+@media (min-width: 768px) and (max-width: 991.98px) {
+  .card-details {
+    max-width: 700px;
+  }
+
+  .container-cards {
+    max-height: calc(100vh - 240px);
+  }
+
+  /* Level 1: 8 cards */
+  .card-details.level-1 .card {
+    width: 130px;
+    height: 130px;
+  }
+
+  .card-details.level-1 .card.visible {
+    font-size: 44px !important;
+  }
+
+  /* Level 2: 12 cards */
+  .card-details.level-2 .card {
+    width: 110px;
+    height: 110px;
+  }
+
+  .card-details.level-2 .card.visible {
+    font-size: 38px !important;
+  }
+
+  /* Level 3: 16 cards */
+  .card-details.level-3 .card {
+    width: 90px;
+    height: 90px;
+  }
+
+  .card-details.level-3 .card.visible {
+    font-size: 32px !important;
+  }
+
+  /* Level 4: 20 cards */
+  .card-details.level-4 .card {
+    width: 80px;
+    height: 80px;
+  }
+
+  .card-details.level-4 .card.visible {
+    font-size: 28px !important;
+  }
+
+  /* Level 5: 24 cards */
+  .card-details.level-5 .card {
+    width: 70px;
+    height: 70px;
+  }
+
+  .card-details.level-5 .card.visible {
+    font-size: 24px !important;
+  }
+
+  .header-details h1 {
+    font-size: 42px;
+  }
+
+  .footer p {
+    font-size: 14px;
+  }
+
+  .badge {
+    margin-right: 32px;
+    font-size: 16px;
+  }
+
+  #restart {
+    margin-left: 60px;
+    font-size: 16px;
+  }
+
+  #exit {
+    margin-left: 20px;
+    font-size: 16px;
+  }
+
+  #btnStartModal {
+    font-size: 16px;
+  }
+
+  .modal-body form {
+    font-size: 16px;
+  }
+
+  #startGameButton {
+    font-size: 16px;
+  }
+
+  .modal-content h3 {
+    font-size: 28px;
+  }
+}
+
+/* sm - Small devices (landscape phones, 576px and up) */
+@media (min-width: 576px) and (max-width: 767.98px) {
+  .card-details {
+    max-width: 550px;
+  }
+
+  .container-cards {
+    max-height: calc(100vh - 250px);
+  }
+
+  /* Level 1: 8 cards */
+  .card-details.level-1 .card {
+    width: 100px;
+    height: 100px;
+  }
+
+  .card-details.level-1 .card.visible {
+    font-size: 36px !important;
+  }
+
+  /* Level 2: 12 cards */
+  .card-details.level-2 .card {
+    width: 85px;
+    height: 85px;
+  }
+
+  .card-details.level-2 .card.visible {
+    font-size: 30px !important;
+  }
+
+  /* Level 3: 16 cards */
+  .card-details.level-3 .card {
+    width: 70px;
+    height: 70px;
+  }
+
+  .card-details.level-3 .card.visible {
+    font-size: 26px !important;
+  }
+
+  /* Level 4: 20 cards */
+  .card-details.level-4 .card {
+    width: 60px;
+    height: 60px;
+  }
+
+  .card-details.level-4 .card.visible {
+    font-size: 22px !important;
+  }
+
+  /* Level 5: 24 cards */
+  .card-details.level-5 .card {
+    width: 55px;
+    height: 55px;
+  }
+
+  .card-details.level-5 .card.visible {
+    font-size: 20px !important;
+  }
+
+  .header-details h1 {
+    font-size: 36px;
+  }
+
+  .footer p {
+    font-size: 12px;
+  }
+
+  .badge {
+    margin-right: 15px;
+    font-size: 12px;
+  }
+
+  #restart {
+    margin-left: 20px;
+    font-size: 12px;
+    padding: 3px 10px;
+  }
+
+  #exit {
+    margin-left: 15px;
+    font-size: 12px;
+    padding: 3px 10px;
+  }
+
+  #btnStartModal {
+    font-size: 12px;
+  }
+
+  .modal-body form {
+    font-size: 12px;
+  }
+
+  #startGameButton {
+    font-size: 12px;
+  }
+
+  .modal-content h3 {
+    font-size: 22px;
+  }
+}
+
+/* xs - Extra small devices (portrait phones, less than 576px) */
+@media (max-width: 575.98px) {
+  .card-details {
+    max-width: 95vw;
+    padding: 10px;
+  }
+
+  .container-cards {
+    max-height: calc(100vh - 260px);
+  }
+
+  /* Level 1: 8 cards */
+  .card-details.level-1 .card {
+    width: 70px;
+    height: 70px;
+    margin: 4px;
+  }
+
+  .card-details.level-1 .card.visible {
+    font-size: 28px !important;
+  }
+
+  /* Level 2: 12 cards */
+  .card-details.level-2 .card {
+    width: 60px;
+    height: 60px;
+    margin: 4px;
+  }
+
+  .card-details.level-2 .card.visible {
+    font-size: 24px !important;
+  }
+
+  /* Level 3: 16 cards */
+  .card-details.level-3 .card {
+    width: 50px;
+    height: 50px;
+    margin: 3px;
+  }
+
+  .card-details.level-3 .card.visible {
+    font-size: 20px !important;
+  }
+
+  /* Level 4: 20 cards */
+  .card-details.level-4 .card {
+    width: 45px;
+    height: 45px;
+    margin: 3px;
+  }
+
+  .card-details.level-4 .card.visible {
+    font-size: 18px !important;
+  }
+
+  /* Level 5: 24 cards */
+  .card-details.level-5 .card {
+    width: 40px;
+    height: 40px;
+    margin: 2px;
+  }
+
+  .card-details.level-5 .card.visible {
+    font-size: 16px !important;
+  }
+
+  .header-details h1 {
+    font-size: 28px;
+  }
+
+  .footer p {
+    font-size: 10px;
+  }
+
+  .badge {
+    margin-right: 10px;
+    font-size: 12px;
+  }
+
+  #restart {
+    margin-left: 15px;
+    font-size: 12px;
+    padding: 3px 10px;
+  }
+
+  #exit {
+    margin-left: 10px;
+    font-size: 12px;
+    padding: 3px 10px;
+  }
+
+  #btnStartModal {
+    font-size: 12px;
+  }
+
+  .modal-body form {
+    font-size: 12px;
+  }
+
+  #startGameButton {
+    font-size: 12px;
+  }
+
+  .modal-content h3 {
+    font-size: 20px;
+  }
+}
+
+/* Iframe-specific styles to fix positioning issues */
+body.iframe-mode .container-cards {
+  max-height: none !important;
+  height: auto !important;
+  margin-top: 20px !important;
+  margin-bottom: 20px !important;
+  padding: 10px 0 !important;
+  /* Ensure cards are fully visible */
+  overflow: visible !important;
+}
+
+body.iframe-mode .card-details {
+  margin-top: 10px !important;
+  margin-bottom: 10px !important;
+  /* Remove height restrictions in iframe */
+  max-height: none !important;
+  height: auto !important;
+}
+
+/* Ensure proper spacing in iframe for all levels */
+body.iframe-mode .level-1 .card-details,
+body.iframe-mode .level-2 .card-details,
+body.iframe-mode .level-3 .card-details,
+body.iframe-mode .level-4 .card-details,
+body.iframe-mode .level-5 .card-details {
+  padding: 15px !important;
+  margin: 10px auto !important;
+  /* Ensure all cards are visible */
+  min-height: auto !important;
+  height: auto !important;
+}
+
+/* Fix header positioning in iframe */
+body.iframe-mode .header {
+  margin-bottom: 10px !important;
+}
+
+body.iframe-mode .header-details h1 {
+  margin: 20px auto 20px auto !important;
+}
+
+/* Fix information section in iframe */
+body.iframe-mode .container-information {
+  margin-bottom: 10px !important;
+}

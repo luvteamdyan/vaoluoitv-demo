@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="X-UA-Compatible" content="ie=edge" />
+    <title>Luck8 Event - Lật Thẻ Nhớ</title>
+    <link
+      rel="stylesheet"
+      href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css"
+      integrity="sha384-Vkoo8x4CGsO3+Hhxv8T/Q5PaXtkKtu6ug5TOeNV6gBiFeWPGFN9MuhOf23Q9Ifjh"
+      crossorigin="anonymous"
+    />
+    <link rel="stylesheet" href="app/assets/css/style.css" type="text/css" />
+    <link rel="stylesheet" href="app/assets/css/milestone.css" type="text/css" />
+  </head>
+
+  <body>
+    <!-- content -->
+    <div class="container container-fluid content">
+      <!-- header -->
+      <header class="header">
+        <div class="row">
+          <div class="col-12 header-details"></div>
+        </div>
+      </header>
+
+      <!-- container-start-modal -->
+      <section class="container container-start-modal">
+        <div class="row">
+          <div class="col-12">
+            <button type="button" id="btnStartModal" class="btn btn-warning">
+              Chơi ngay!
+            </button>
+            <!-- Modal is hidden - game starts directly on button click -->
+          </div>
+        </div>
+      </section>
+
+      <!-- container-information -->
+      <div class="container container-information">
+        <div class="row">
+          <div class="col-12 information-details"></div>
+        </div>
+      </div>
+
+      <!-- container-cards -->
+      <div class="container container-cards">
+        <div class="row">
+          <div class="col-12 card-details"></div>
+        </div>
+      </div>
+
+      <!-- container-results-modal -->
+      <div class="container container-results-modal">
+        <div class="row">
+          <div class="col-12">
+            <div
+              class="modal fade"
+              id="resultsModal"
+              tabindex="-1"
+              role="dialog"
+            >
+              <div class="modal-dialog modal-dialog-centered" role="document">
+                <div class="modal-content">
+                  <div class="modal-body">
+                    <h3 class="modal-title uppercase" id="resultMenuTitle">
+                      Congrats!
+                    </h3>
+                    <p class="resultsText"></p>
+                    <button
+                      type="button"
+                      class="btn btn-warning"
+                      id="resultsButton"
+                    >
+                      Level up
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-warning"
+                      id="endGameButton"
+                    >
+                      Play again!
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- Cookie Utils for cross-subdomain authentication -->
+    <script src="/shared/cookie-utils.js"></script>
+    <script src="/api/config"></script>
+    <script src="/shared/postmessage-auth.js"></script>
+    <script>
+      // Authentication Check - Redirect to login if not authenticated
+      (function() {
+        function checkAuth() {
+          const token = window.CookieUtils ? window.CookieUtils.getAuthToken() : null;
+          const user = window.CookieUtils ? window.CookieUtils.getUserData() : null;
+          
+          if (!token || !user) {
+            // Redirect về trang chủ hoặc trang login của Next.js app
+            window.location.href = '/';
+            return;
+          }
+          
+        }
+        
+        // In iframe, wait for postMessage auth data (development)
+        if (window.self !== window.top) {
+          // Wait for auth data or timeout after 2 seconds
+          let authReceived = false;
+          
+          window.addEventListener('authDataReceived', function() {
+            authReceived = true;
+            checkAuth();
+          });
+          
+          setTimeout(function() {
+            if (!authReceived) {
+              checkAuth();
+            }
+          }, 2000);
+        } else {
+          // Not in iframe, check immediately
+          checkAuth();
+        }
+      })();
+    </script>
+
+    <!-- Scripts -->
+    <script
+      src="https://kit.fontawesome.com/e576f39845.js"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://code.jquery.com/jquery-3.4.1.slim.min.js"
+      integrity="sha384-J6qa4849blE2+poT4WnyKhv5vZF5SrPo0iEjwBvKU7imGFAV0wwj1yYfoRSJoZ+n"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://code.jquery.com/jquery-3.5.0.js"
+      integrity="sha256-r/AaFHrszJtwpe+tHyNi/XCfMxYpbsRg2Uqn0x3s2zc="
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://code.jquery.com/ui/1.12.1/jquery-ui.js"
+      integrity="sha256-T0Vest3yCU7pafRw9r+settMBX6JkKN06dqBnpQ8d30="
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/popper.js@1.16.0/dist/umd/popper.min.js"
+      integrity="sha384-Q6E9RHvbIyZFJoft+2mJbHaEWldlvI9IOYy5n3zV9zzTtmI3UksdQRVvoxMfooAo"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/js/bootstrap.min.js"
+      integrity="sha384-wfSDF2E50Y2D1uUdj0O3uMBJnjuUD4Ih7YwaYd1iqfktj0Uod8GCExl3Og8ifwB6"
+      crossorigin="anonymous"
+    ></script>
+    <script src="app/assets/js/milestone_tracker.js"></script>
+    <script src="app/assets/js/game.js"></script>
+    <script>
+      // Iframe scaling functionality
+      function scaleGameForIframe() {
+        // Check if we're in an iframe
+        if (window.self !== window.top) {
+          
+          // Add iframe mode class for CSS styling
+          document.body.classList.add('iframe-mode');
+          
+          // Get iframe dimensions
+          const iframeWidth = window.innerWidth;
+          const iframeHeight = window.innerHeight;
+          
+          // Base game dimensions (designed for full screen)
+          const baseWidth = 1920; // Base design width
+          const baseHeight = 1080; // Base design height
+          
+          // Calculate scale factors
+          const scaleX = iframeWidth / baseWidth;
+          const scaleY = iframeHeight / baseHeight;
+          
+          // Use the smaller scale to maintain aspect ratio
+          const scale = Math.min(scaleX, scaleY);
+          
+          
+          // Apply scaling to body
+          document.body.style.transform = `scale(${scale})`;
+          document.body.style.transformOrigin = 'top left';
+          
+          // Adjust body size to prevent overflow
+          document.body.style.width = `${baseWidth}px`;
+          document.body.style.height = `${baseHeight}px`;
+          
+          // Center the scaled content
+          const scaledWidth = baseWidth * scale;
+          const scaledHeight = baseHeight * scale;
+          const offsetX = (iframeWidth - scaledWidth) / 2;
+          const offsetY = (iframeHeight - scaledHeight) / 2;
+          
+          document.body.style.marginLeft = `${offsetX}px`;
+          document.body.style.marginTop = `${offsetY}px`;
+          
+          // Ensure no overflow
+          document.body.style.overflow = 'hidden';
+          document.documentElement.style.overflow = 'hidden';
+          
+        } else {
+          // Not in iframe, remove iframe-specific styling
+          document.body.classList.remove('iframe-mode');
+        }
+      }
+      
+      // Initialize milestone tracker after DOM is ready
+      $(document).ready(function() {
+        // Apply iframe scaling
+        scaleGameForIframe();
+        
+        // Re-scale on window resize
+        window.addEventListener('resize', scaleGameForIframe);
+        
+        // Get user info from cookies (cross-subdomain)
+        const user = window.CookieUtils ? window.CookieUtils.getUserData() : null;
+        if (user && window.memoryCardMilestoneTracker) {
+          try {
+            const apiBaseUrl = window.MINIGAMES_CONFIG?.API_BASE_URL || 'https://games-api.vaoluoitv.com';
+            window.memoryCardMilestoneTracker.init(user.id, apiBaseUrl);
+          } catch (e) {
+            console.error('[MemoryCard] Failed to initialize milestone tracker:', e);
+          }
+        }
+      });
+    </script>
+  </body>
+</html>
