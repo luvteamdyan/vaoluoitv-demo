@@ -223,20 +223,32 @@ jobs:
           echo "🔍 Stack structure:"
           echo "$STACK_DETAILS" | jq -r 'keys[]' | head -10
           
-          # Check if it's a web editor stack
-          if echo "$STACK_DETAILS" | jq -e '.StackFileContent' > /dev/null; then
-            echo "✅ Stack has StackFileContent"
+          # Check if it's a Git-based stack (EntryPoint) or file-based stack
+          if echo "$STACK_DETAILS" | jq -e '.GitConfig' > /dev/null; then
+            echo "✅ Stack is Git-based (EntryPoint)"
+            GIT_CONFIG=$(echo "$STACK_DETAILS" | jq -r '.GitConfig')
+            echo "📋 Git Config: $GIT_CONFIG"
+          elif echo "$STACK_DETAILS" | jq -e '.StackFileContent' > /dev/null; then
+            echo "✅ Stack has StackFileContent (file-based)"
             COMPOSE_LENGTH=$(echo "$STACK_DETAILS" | jq -r '.StackFileContent' | wc -c)
             echo "📏 Compose file length: $COMPOSE_LENGTH characters"
           else
-            echo "❌ Stack does not have StackFileContent"
+            echo "❌ Stack does not have GitConfig or StackFileContent"
             echo "🔍 Available fields:"
             echo "$STACK_DETAILS" | jq -r 'keys[]'
           fi
           
-          # For web editor stacks, we need to use different approach
-          if [ "$STACK_TYPE" == "1" ] || [ "$STACK_TYPE" == "docker-compose" ]; then
-            echo "🔄 Updating Docker Compose stack..."
+          # For Git-based stacks (EntryPoint), we need to trigger a pull and redeploy
+          if echo "$STACK_DETAILS" | jq -e '.GitConfig' > /dev/null; then
+            echo "🔄 Updating Git-based stack (EntryPoint)..."
+            
+            # For Git-based stacks, we trigger a pull and redeploy
+            # This will pull the latest changes from the Git repository
+            UPDATE_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/update_response.json -X PUT \
+              "${{ secrets.PORTAINER_URL }}/api/stacks/$STACK_ID/git/redeploy?endpointId=${{ secrets.PORTAINER_ENDPOINT_ID }}" \
+              -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
+          elif [ "$STACK_TYPE" == "1" ] || [ "$STACK_TYPE" == "docker-compose" ]; then
+            echo "🔄 Updating Docker Compose stack (file-based)..."
             
             # Get the compose file content
             STACK_COMPOSE_FILE=$(echo "$STACK_DETAILS" | jq -r '.StackFileContent')
@@ -255,7 +267,7 @@ jobs:
               -H "Content-Type: application/json" \
               -d @/tmp/update_payload.json)
           else
-            echo "🔄 Updating Docker Swarm stack..."
+            echo "🔄 Updating Docker Swarm stack (file-based)..."
             
             # For swarm stacks, we need different payload structure
             STACK_COMPOSE_FILE=$(echo "$STACK_DETAILS" | jq -r '.StackFileContent')
@@ -293,48 +305,102 @@ jobs:
             STACK_NAME=$(echo "$STACK_DETAILS" | jq -r '.Name')
             STACK_ENV=$(echo "$STACK_DETAILS" | jq -r '.Env // []')
             
-            # Delete and recreate stack
-            echo "🗑️ Deleting current stack..."
-            DELETE_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/delete_response.json -X DELETE \
-              "${{ secrets.PORTAINER_URL }}/api/stacks/$STACK_ID?endpointId=${{ secrets.PORTAINER_ENDPOINT_ID }}" \
-              -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
-            
-            echo "Delete HTTP Code: $DELETE_RESPONSE"
-            
-            if [ "$DELETE_RESPONSE" -ge 200 ] && [ "$DELETE_RESPONSE" -lt 300 ]; then
-              echo "✅ Stack deleted successfully"
+            # Check if it's a Git-based stack
+            if echo "$STACK_DETAILS" | jq -e '.GitConfig' > /dev/null; then
+              echo "🔄 Recreating Git-based stack..."
               
-              # Wait a moment
-              sleep 5
+              # For Git-based stacks, we need to extract Git configuration
+              GIT_CONFIG=$(echo "$STACK_DETAILS" | jq -r '.GitConfig')
+              echo "📋 Git Config for recreation: $GIT_CONFIG"
               
-              # Recreate stack
-              echo "🔄 Recreating stack..."
-              echo '{"Name":"'$STACK_NAME'","StackFileContent":' > /tmp/recreate_payload.json
-              echo "$STACK_COMPOSE_FILE" | jq -R -s . >> /tmp/recreate_payload.json
-              echo ',"Env":'$STACK_ENV'}' >> /tmp/recreate_payload.json
+              # Delete and recreate Git-based stack
+              echo "🗑️ Deleting current Git-based stack..."
+              DELETE_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/delete_response.json -X DELETE \
+                "${{ secrets.PORTAINER_URL }}/api/stacks/$STACK_ID?endpointId=${{ secrets.PORTAINER_ENDPOINT_ID }}" \
+                -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
               
-              RECREATE_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/recreate_response.json -X POST \
-                "${{ secrets.PORTAINER_URL }}/api/stacks?type=1&method=string&endpointId=${{ secrets.PORTAINER_ENDPOINT_ID }}" \
-                -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}" \
-                -H "Content-Type: application/json" \
-                -d @/tmp/recreate_payload.json)
+              echo "Delete HTTP Code: $DELETE_RESPONSE"
               
-              echo "Recreate HTTP Code: $RECREATE_RESPONSE"
-              
-              if [ "$RECREATE_RESPONSE" -ge 200 ] && [ "$RECREATE_RESPONSE" -lt 300 ]; then
-                echo "✅ Stack recreated successfully!"
-                DEPLOYMENT_RESULTS=("Stack:RECREATED")
+              if [ "$DELETE_RESPONSE" -ge 200 ] && [ "$DELETE_RESPONSE" -lt 300 ]; then
+                echo "✅ Git-based stack deleted successfully"
+                
+                # Wait a moment
+                sleep 5
+                
+                # Recreate Git-based stack
+                echo "🔄 Recreating Git-based stack..."
+                echo '{"Name":"'$STACK_NAME'","GitConfig":'$GIT_CONFIG',"Env":'$STACK_ENV'}' > /tmp/recreate_payload.json
+                
+                RECREATE_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/recreate_response.json -X POST \
+                  "${{ secrets.PORTAINER_URL }}/api/stacks?type=1&method=repository&endpointId=${{ secrets.PORTAINER_ENDPOINT_ID }}" \
+                  -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}" \
+                  -H "Content-Type: application/json" \
+                  -d @/tmp/recreate_payload.json)
+                
+                echo "Recreate HTTP Code: $RECREATE_RESPONSE"
+                
+                if [ "$RECREATE_RESPONSE" -ge 200 ] && [ "$RECREATE_RESPONSE" -lt 300 ]; then
+                  echo "✅ Git-based stack recreated successfully!"
+                  DEPLOYMENT_RESULTS=("Stack:RECREATED")
+                else
+                  echo "❌ Failed to recreate Git-based stack!"
+                  echo "Response:"
+                  cat /tmp/recreate_response.json
+                  DEPLOYMENT_RESULTS=("Stack:FAILED")
+                fi
               else
-                echo "❌ Failed to recreate stack!"
+                echo "❌ Failed to delete Git-based stack!"
                 echo "Response:"
-                cat /tmp/recreate_response.json
+                cat /tmp/delete_response.json
                 DEPLOYMENT_RESULTS=("Stack:FAILED")
               fi
             else
-              echo "❌ Failed to delete stack!"
-              echo "Response:"
-              cat /tmp/delete_response.json
-              DEPLOYMENT_RESULTS=("Stack:FAILED")
+              echo "🔄 Recreating file-based stack..."
+              
+              # For file-based stacks, use the original approach
+              # Delete and recreate stack
+              echo "🗑️ Deleting current file-based stack..."
+              DELETE_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/delete_response.json -X DELETE \
+                "${{ secrets.PORTAINER_URL }}/api/stacks/$STACK_ID?endpointId=${{ secrets.PORTAINER_ENDPOINT_ID }}" \
+                -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
+              
+              echo "Delete HTTP Code: $DELETE_RESPONSE"
+              
+              if [ "$DELETE_RESPONSE" -ge 200 ] && [ "$DELETE_RESPONSE" -lt 300 ]; then
+                echo "✅ File-based stack deleted successfully"
+                
+                # Wait a moment
+                sleep 5
+                
+                # Recreate file-based stack
+                echo "🔄 Recreating file-based stack..."
+                echo '{"Name":"'$STACK_NAME'","StackFileContent":' > /tmp/recreate_payload.json
+                echo "$STACK_COMPOSE_FILE" | jq -R -s . >> /tmp/recreate_payload.json
+                echo ',"Env":'$STACK_ENV'}' >> /tmp/recreate_payload.json
+                
+                RECREATE_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/recreate_response.json -X POST \
+                  "${{ secrets.PORTAINER_URL }}/api/stacks?type=1&method=string&endpointId=${{ secrets.PORTAINER_ENDPOINT_ID }}" \
+                  -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}" \
+                  -H "Content-Type: application/json" \
+                  -d @/tmp/recreate_payload.json)
+                
+                echo "Recreate HTTP Code: $RECREATE_RESPONSE"
+                
+                if [ "$RECREATE_RESPONSE" -ge 200 ] && [ "$RECREATE_RESPONSE" -lt 300 ]; then
+                  echo "✅ File-based stack recreated successfully!"
+                  DEPLOYMENT_RESULTS=("Stack:RECREATED")
+                else
+                  echo "❌ Failed to recreate file-based stack!"
+                  echo "Response:"
+                  cat /tmp/recreate_response.json
+                  DEPLOYMENT_RESULTS=("Stack:FAILED")
+                fi
+              else
+                echo "❌ Failed to delete file-based stack!"
+                echo "Response:"
+                cat /tmp/delete_response.json
+                DEPLOYMENT_RESULTS=("Stack:FAILED")
+              fi
             fi
           fi
           
@@ -378,7 +444,7 @@ jobs:
           echo "**Deployment Results:**" >> $GITHUB_STEP_SUMMARY
           echo "${{ steps.deploy.outputs.deployment_results }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Method:** Full Stack Update (Portainer Stack API)" >> $GITHUB_STEP_SUMMARY
+          echo "**Method:** Portainer Stack API (Git-based EntryPoint or File-based)" >> $GITHUB_STEP_SUMMARY
           echo "**Result:** All containers recreated with latest images" >> $GITHUB_STEP_SUMMARY
           
       - name: Deployment failed summary
