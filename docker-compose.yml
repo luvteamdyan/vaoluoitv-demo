@@ -1,0 +1,295 @@
+services:
+  # Redis Database
+  redis:
+    image: redis:7-alpine
+    container_name: vaoluoi-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - vaoluoi-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # VaoLuoiTV API Service
+  api_gateway:
+    build:
+      context: ../../api_gateway
+      dockerfile: Dockerfile
+    image: devlee21/api_gateway:latest
+    container_name: api_gateway
+    restart: unless-stopped
+    env_file:
+      - ../../api_gateway/.env
+    environment:
+      - NODE_ENV=development
+    ports:
+      - "3005:3000"
+    networks:
+      - vaoluoi-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.vaoluoi-api.rule=Host(`api.vaoluoitv.com`)"
+      - "traefik.http.routers.vaoluoi-api.entrypoints=websecure"
+      - "traefik.http.routers.vaoluoi-api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.vaoluoi-api.loadbalancer.server.port=3000"
+      - "traefik.docker.network=vaoluoi-network"
+
+      # CORS middleware (allow all origins via regex, supports credentials)
+      - "traefik.http.middlewares.vaoluoi-cors.headers.accessControlAllowOriginListRegex=.*"
+      - "traefik.http.middlewares.vaoluoi-cors.headers.accessControlAllowMethods=GET,POST,PUT,DELETE,OPTIONS,PATCH"
+      - "traefik.http.middlewares.vaoluoi-cors.headers.accessControlAllowHeaders=Authorization,Content-Type,X-Requested-With,Origin,Accept,X-CSRF-Token"
+      - "traefik.http.middlewares.vaoluoi-cors.headers.accessControlExposeHeaders=Content-Length,Content-Range,X-Total-Count"
+      - "traefik.http.middlewares.vaoluoi-cors.headers.accessControlAllowCredentials=true"
+      - "traefik.http.middlewares.vaoluoi-cors.headers.accessControlMaxAge=86400"
+      - "traefik.http.middlewares.vaoluoi-cors.headers.addVaryHeader=true"
+
+      # Attach middleware to router
+      - "traefik.http.routers.vaoluoi-api.middlewares=vaoluoi-cors@docker"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/v1/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      - redis
+
+  # VaoLuoiTV Security API Service
+  secure_api_service:
+    build:
+      context: ../../secure_api_service
+      dockerfile: Dockerfile
+    image: devlee21/secure_api_service:latest
+    container_name: secure_api_service
+    restart: unless-stopped
+    env_file:
+      - ../../secure_api_service/.env
+    environment:
+      - NODE_ENV=development
+      - PORT=3001
+    networks:
+      - vaoluoi-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.vaoluoi_secure_api.rule=Host(`security-api.vaoluoitv.com`)"
+      - "traefik.http.routers.vaoluoi_secure_api.entrypoints=websecure"
+      - "traefik.http.routers.vaoluoi_secure_api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.vaoluoi_secure_api.loadbalancer.server.port=3001"
+      - "traefik.docker.network=vaoluoi-network"
+      # Reuse the same CORS middleware
+      - "traefik.http.routers.vaoluoi_secure_api.middlewares=vaoluoi-cors@docker"
+      
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/api/v1/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      - api_gateway
+      - redis
+
+  # VaoLuoiTV Upload Service
+  upload_service:
+    build:
+      context: ../../upload_service
+      dockerfile: Dockerfile
+    image: devlee21/upload_service:latest
+    container_name: upload_service
+    restart: unless-stopped
+    env_file:
+      - ../../upload_service/.env
+    environment:
+      - NODE_ENV=development
+      - PORT=3002
+    networks:
+      - vaoluoi-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "const net = require('net'); const client = net.createConnection(3002, 'localhost'); client.on('connect', () => { client.end(); process.exit(0); }); client.on('error', () => process.exit(1));"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      - api_gateway
+      - redis
+
+  # VaoLuoiTV Sync Service
+  crawler_worker_service:
+    build:
+      context: ../../crawler_worker_service
+      dockerfile: Dockerfile
+    image: devlee21/crawler_worker_service:latest
+    container_name: crawler_worker_service
+    restart: unless-stopped
+    env_file:
+      - ../../crawler_worker_service/.env
+    environment:
+      - NODE_ENV=development
+      - PORT=3004
+    networks:
+      - vaoluoi-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.vaoluoi_sync.rule=Host(`sync-api.vaoluoitv.com`)"
+      - "traefik.http.routers.vaoluoi_sync.entrypoints=websecure"
+      - "traefik.http.routers.vaoluoi_sync.tls.certresolver=letsencrypt"
+      - "traefik.http.services.vaoluoi_sync.loadbalancer.server.port=3004"
+      - "traefik.docker.network=vaoluoi-network"
+      # Reuse the same CORS middleware
+      - "traefik.http.routers.vaoluoi_sync.middlewares=vaoluoi-cors@docker"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3004/api/v1/sync/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      - api_gateway
+      - redis
+
+  # VaoLuoiTV Games Service
+  game_service:
+    build:
+      context: ../../game_sevice
+      dockerfile: Dockerfile
+    image: devlee21/game_service:latest
+    container_name: game_service
+    restart: unless-stopped
+    env_file:
+      - ../../game_sevice/.env
+    environment:
+      - NODE_ENV=development
+      - PORT=3009
+    networks:
+      - vaoluoi-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.vaoluoi_games_service.rule=Host(`games-api.vaoluoitv.com`)"
+      - "traefik.http.routers.vaoluoi_games_service.entrypoints=websecure"
+      - "traefik.http.routers.vaoluoi_games_service.tls.certresolver=letsencrypt"
+      - "traefik.http.services.vaoluoi_games_service.loadbalancer.server.port=3009"
+      - "traefik.docker.network=vaoluoi-network"
+      # Reuse the same CORS middleware
+      - "traefik.http.routers.vaoluoi_games_service.middlewares=vaoluoi-cors@docker"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3009/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      - redis
+
+  # VaoLuoiTV Admin Dashboard
+  admin_dashboard:
+    image: devlee21/admin-dashboard:latest
+    container_name: admin_dashboard
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=development
+      - PORT=3006
+      - NEXT_PUBLIC_BACKEND_URL=https://api.vaoluoitv.com/api/v1
+      - NEXT_PUBLIC_MATCH_URL=https://api.vaoluoitv.com/api/v1
+      - NEXT_PUBLIC_STREAM_KEY_URL=https://api.vaoluoitv.com/api/v1
+      - NEXT_PUBLIC_UPLOAD_URL=https://api.vaoluoitv.com/api/v1
+      - NEXT_PUBLIC_ADS_CONFIG_URL=https://api.vaoluoitv.com/api/v1
+    networks:
+      - vaoluoi-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.vaoluoi-admin-http.rule=Host(`admin.vaoluoitv.com`)"
+      - "traefik.http.routers.vaoluoi-admin-http.entrypoints=web"
+      - "traefik.http.routers.vaoluoi-admin-http.middlewares=redirect-to-https"
+      - "traefik.http.routers.vaoluoi-admin.rule=Host(`admin.vaoluoitv.com`)"
+      - "traefik.http.routers.vaoluoi-admin.entrypoints=websecure"
+      - "traefik.http.routers.vaoluoi-admin.tls.certresolver=letsencrypt"
+      - "traefik.http.services.vaoluoi-admin.loadbalancer.server.port=3006"
+      - "traefik.docker.network=vaoluoi-network"
+      # Reuse the same CORS middleware
+      - "traefik.http.routers.vaoluoi-admin.middlewares=vaoluoi-cors@docker"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - const http=require('http');const req=http.request({host:'127.0.0.1',port:8386,path:'/',timeout:5000},res=>{process.exit(res.statusCode<400?0:1)});req.on('error',()=>process.exit(1));req.end();
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    depends_on:
+      - api_gateway
+
+  # Traefik Reverse Proxy
+  traefik:
+    image: traefik:v3.0
+    container_name: vaoluoi-traefik
+    restart: unless-stopped
+    env_file:
+      - .env
+    command:
+      - "--api.dashboard=false"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--log.level=INFO"
+      - "--accesslog=true"
+      # Redirect HTTP to HTTPS
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik_data:/letsencrypt
+    networks:
+      - vaoluoi-network
+
+  # Portainer - Container Management UI
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: vaoluoi-portainer
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+      - "9443:9443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    networks:
+      - vaoluoi-network
+    labels:
+      - "traefik.enable=true"
+      # HTTP -> HTTPS redirect
+      - "traefik.http.routers.portainer-http.rule=Host(`portainer.vaoluoitv.com`)"
+      - "traefik.http.routers.portainer-http.entrypoints=web"
+      - "traefik.http.routers.portainer-http.middlewares=redirect-to-https"
+      # HTTPS
+      - "traefik.http.routers.portainer.rule=Host(`portainer.vaoluoitv.com`)"
+      - "traefik.http.routers.portainer.entrypoints=websecure"
+      - "traefik.http.routers.portainer.tls.certresolver=letsencrypt"
+      - "traefik.http.services.portainer.loadbalancer.server.port=9000"
+      - "traefik.docker.network=vaoluoi-network"
+
+volumes:
+  traefik_data:
+    driver: local
+  redis_data:
+    driver: local
+  portainer_data:
+    driver: local
+
+networks:
+  vaoluoi-network:
+    driver: bridge
