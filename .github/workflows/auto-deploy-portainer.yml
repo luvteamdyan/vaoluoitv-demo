@@ -170,12 +170,16 @@ jobs:
               echo "⚠️ No services to build or deploy"
             else
               # Build matrix using jq for proper JSON formatting
-              BUILD_JSON=$(printf '%s\n' "${BUILD_SERVICES[@]}" | jq -R . | jq -s .)
+              BUILD_JSON=$(jq -c -n '$ARGS.positional' --args "${BUILD_SERVICES[@]}")
               echo "build-matrix=$BUILD_JSON" >> $GITHUB_OUTPUT
               
-              # Deploy matrix using jq for proper JSON formatting
-              DEPLOY_JSON=$(printf '%s\n' "${DEPLOY_SERVICES[@]}" | jq -R . | jq -s .)
+              # Deploy matrix using jq for proper JSON formatting  
+              DEPLOY_JSON=$(jq -c -n '$ARGS.positional' --args "${DEPLOY_SERVICES[@]}")
               echo "deploy-matrix=$DEPLOY_JSON" >> $GITHUB_OUTPUT
+              
+              # Debug output
+              echo "🔍 Debug - BUILD_JSON: $BUILD_JSON"
+              echo "🔍 Debug - DEPLOY_JSON: $DEPLOY_JSON"
             fi
 
       - name: Show change detection results
