@@ -242,9 +242,20 @@ jobs:
             echo "🔍 StackFileContent value: $(echo "$STACK_DETAILS" | jq -r '.StackFileContent // "null"')"
             
             # Try to determine method from stack type and other fields
-            if echo "$STACK_DETAILS" | jq -e '.EntryPoint' > /dev/null && [ "$(echo "$STACK_DETAILS" | jq -r '.EntryPoint')" != "null" ]; then
-              echo "✅ Found EntryPoint field - treating as Git-based stack"
+            if echo "$STACK_DETAILS" | jq -e '.GitConfig' > /dev/null && [ "$(echo "$STACK_DETAILS" | jq -r '.GitConfig')" != "null" ] && [ "$(echo "$STACK_DETAILS" | jq -r '.GitConfig')" != "{}" ]; then
+              echo "✅ Found valid GitConfig - treating as Git-based stack"
               STACK_METHOD="git"
+            elif echo "$STACK_DETAILS" | jq -e '.EntryPoint' > /dev/null && [ "$(echo "$STACK_DETAILS" | jq -r '.EntryPoint')" != "null" ]; then
+              echo "⚠️ Found EntryPoint but GitConfig is null/empty - checking if it's a template-based stack"
+              
+              # Check if it's a template-based stack
+              if echo "$STACK_DETAILS" | jq -e '.FromAppTemplate' > /dev/null && [ "$(echo "$STACK_DETAILS" | jq -r '.FromAppTemplate')" == "true" ]; then
+                echo "✅ This is a template-based stack - treating as file-based for updates"
+                STACK_METHOD="file"
+              else
+                echo "⚠️ Unknown stack type with EntryPoint - defaulting to file-based"
+                STACK_METHOD="file"
+              fi
             else
               echo "❌ Cannot determine stack method - defaulting to file-based"
               STACK_METHOD="file"
@@ -261,24 +272,95 @@ jobs:
               "${{ secrets.PORTAINER_URL }}/api/stacks/$STACK_ID/git/redeploy?endpointId=${{ secrets.PORTAINER_ENDPOINT_ID }}" \
               -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
           else
-            echo "🔄 Updating file-based stack..."
+            echo "🔄 Updating file-based/template-based stack..."
             
-            # Get the compose file content
-            STACK_COMPOSE_FILE=$(echo "$STACK_DETAILS" | jq -r '.StackFileContent')
+            # First, try to pull latest images for all containers in the stack
+            echo "📋 Pulling latest images for all containers..."
             
-            # Create temporary file for JSON payload
-            echo '{"StackFileContent":' > /tmp/update_payload.json
-            echo "$STACK_COMPOSE_FILE" | jq -R -s . >> /tmp/update_payload.json
-            echo ',"Prune":true}' >> /tmp/update_payload.json
+            # Get containers in the stack
+            STACK_NAME=$(echo "$STACK_DETAILS" | jq -r '.Name')
+            CONTAINERS_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/stack_containers.json \
+              "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/json?all=true&filters=%7B%22label%22%3A%5B%22com.docker.compose.project%3D$STACK_NAME%22%5D%7D" \
+              -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
             
-            echo "📋 Payload prepared, updating stack..."
+            if [ "$CONTAINERS_RESPONSE" -eq 200 ]; then
+              CONTAINERS_JSON=$(cat /tmp/stack_containers.json)
+              
+              # Extract unique image names from containers
+              IMAGE_NAMES=$(echo "$CONTAINERS_JSON" | jq -r '.[] | .Image' | sort -u)
+              
+              for IMAGE in $IMAGE_NAMES; do
+                if [ "$IMAGE" != "null" ] && [ -n "$IMAGE" ]; then
+                  echo "🔄 Pulling image: $IMAGE"
+                  PULL_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/pull_${IMAGE//\//_}.json -X POST \
+                    "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/images/create?fromImage=$IMAGE" \
+                    -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
+                  
+                  if [ "$PULL_RESPONSE" -ge 200 ] && [ "$PULL_RESPONSE" -lt 300 ]; then
+                    echo "✅ Successfully pulled: $IMAGE"
+                  else
+                    echo "⚠️ Failed to pull: $IMAGE (HTTP: $PULL_RESPONSE)"
+                  fi
+                fi
+              done
+            fi
             
-            # Update stack
-            UPDATE_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/update_response.json -X PUT \
-              "${{ secrets.PORTAINER_URL }}/api/stacks/$STACK_ID?endpointId=${{ secrets.PORTAINER_ENDPOINT_ID }}" \
-              -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}" \
-              -H "Content-Type: application/json" \
-              -d @/tmp/update_payload.json)
+            # Try to restart the stack by recreating containers
+            echo "🔄 Restarting stack containers..."
+            
+            # Restart all containers in the stack
+            if [ "$CONTAINERS_RESPONSE" -eq 200 ]; then
+              CONTAINER_IDS=$(echo "$CONTAINERS_JSON" | jq -r '.[] | .Id')
+              
+              for CONTAINER_ID in $CONTAINER_IDS; do
+                if [ "$CONTAINER_ID" != "null" ] && [ -n "$CONTAINER_ID" ]; then
+                  echo "🔄 Restarting container: $CONTAINER_ID"
+                  
+                  # Stop container
+                  STOP_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/stop_${CONTAINER_ID}.json -X POST \
+                    "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/$CONTAINER_ID/stop?t=30" \
+                    -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
+                  
+                  # Start container
+                  START_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/start_${CONTAINER_ID}.json -X POST \
+                    "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/$CONTAINER_ID/start" \
+                    -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
+                  
+                  if [ "$START_RESPONSE" -ge 200 ] && [ "$START_RESPONSE" -lt 300 ]; then
+                    echo "✅ Successfully restarted container: $CONTAINER_ID"
+                  else
+                    echo "⚠️ Failed to restart container: $CONTAINER_ID (HTTP: $START_RESPONSE)"
+                  fi
+                fi
+              done
+              
+              UPDATE_RESPONSE=200
+              echo "✅ Stack containers restarted successfully"
+            else
+              echo "⚠️ Could not get container list, trying alternative approach..."
+              
+              # Fallback: try to get and update compose content if available
+              if echo "$STACK_DETAILS" | jq -e '.StackFileContent' > /dev/null && [ "$(echo "$STACK_DETAILS" | jq -r '.StackFileContent')" != "null" ]; then
+                STACK_COMPOSE_FILE=$(echo "$STACK_DETAILS" | jq -r '.StackFileContent')
+                
+                # Create temporary file for JSON payload
+                echo '{"StackFileContent":' > /tmp/update_payload.json
+                echo "$STACK_COMPOSE_FILE" | jq -R -s . >> /tmp/update_payload.json
+                echo ',"Prune":true}' >> /tmp/update_payload.json
+                
+                echo "📋 Payload prepared, updating stack..."
+                
+                # Update stack
+                UPDATE_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/update_response.json -X PUT \
+                  "${{ secrets.PORTAINER_URL }}/api/stacks/$STACK_ID?endpointId=${{ secrets.PORTAINER_ENDPOINT_ID }}" \
+                  -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}" \
+                  -H "Content-Type: application/json" \
+                  -d @/tmp/update_payload.json)
+              else
+                echo "❌ No compose content available for update"
+                UPDATE_RESPONSE=500
+              fi
+            fi
           fi
           
           echo "Stack Update HTTP Code: $UPDATE_RESPONSE"
