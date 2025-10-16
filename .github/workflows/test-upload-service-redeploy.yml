@@ -167,7 +167,7 @@ jobs:
               echo "⚠️ Container remove response: $REMOVE_RESPONSE"
             fi
             
-            # Step 4: Pull latest image
+            # Step 4: Pull latest image (skip if fails, continue with recreation)
             echo "📦 Step 4: Pulling latest image: $IMAGE_NAME:latest"
             PULL_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/pull_response.json -X POST \
               "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/images/create?fromImage=$IMAGE_NAME:latest" \
@@ -178,69 +178,93 @@ jobs:
             if [ "$PULL_RESPONSE" -ge 200 ] && [ "$PULL_RESPONSE" -lt 300 ]; then
               echo "✅ Latest image pulled successfully"
             else
-              echo "⚠️ Failed to pull image (HTTP: $PULL_RESPONSE)"
+              echo "⚠️ Failed to pull image (HTTP: $PULL_RESPONSE) - continuing with recreation anyway"
+              echo "Response:"
+              cat /tmp/pull_response.json 2>/dev/null || echo "No response body"
             fi
             
-            # Step 5: Create new container with old configuration
-            echo "🔄 Step 5: Creating new container with old configuration..."
+            # Step 5: Create new container with simplified approach
+            echo "🔄 Step 5: Creating new container with simplified approach..."
             
-            # Debug: Check if configs are valid
-            echo "🔍 Debug: Checking config validity..."
-            echo "Container Config length: $(echo "$CONTAINER_CONFIG" | jq length 2>/dev/null || echo "invalid")"
-            echo "Host Config length: $(echo "$HOST_CONFIG" | jq length 2>/dev/null || echo "invalid")"
-            echo "Network Settings length: $(echo "$NETWORK_SETTINGS" | jq length 2>/dev/null || echo "invalid")"
+            # Instead of complex recreation, let's use a simpler approach
+            # Just remove the container and let the stack recreate it
+            echo "🔄 Using simplified approach - let stack recreate the container..."
             
-            # Update image to latest in config
-            CONTAINER_CONFIG=$(echo "$CONTAINER_CONFIG" | jq --arg image "$IMAGE_NAME:latest" '.Image = $image')
+            # Get stack information to trigger recreation
+            echo "📋 Getting stack information..."
+            STACKS_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/stacks.json \
+              "${{ secrets.PORTAINER_URL }}/api/stacks" \
+              -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
             
-            # Create recreate payload with proper structure
-            RECREATE_PAYLOAD=$(jq -n \
-              --argjson config "$CONTAINER_CONFIG" \
-              --argjson hostConfig "$HOST_CONFIG" \
-              '{
-                "Config": $config,
-                "HostConfig": $hostConfig
-              }')
-            
-            echo "$RECREATE_PAYLOAD" > /tmp/recreate_payload.json
-            
-            # Debug: Check payload
-            echo "🔍 Debug: Payload size: $(wc -c < /tmp/recreate_payload.json) bytes"
-            echo "🔍 Debug: Payload preview:"
-            head -5 /tmp/recreate_payload.json
-            
-            CREATE_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/create_response.json -X POST \
-              "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/create?name=$CONTAINER_NAME" \
-              -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}" \
-              -H "Content-Type: application/json" \
-              -d @/tmp/recreate_payload.json)
-            
-            echo "Create HTTP Code: $CREATE_RESPONSE"
-            
-            if [ "$CREATE_RESPONSE" -ge 200 ] && [ "$CREATE_RESPONSE" -lt 300 ]; then
-              NEW_CONTAINER_ID=$(cat /tmp/create_response.json | jq -r '.Id')
-              echo "✅ New container created: $NEW_CONTAINER_ID"
+            if [ "$STACKS_RESPONSE" -eq 200 ]; then
+              # Find the vaoluoitv stack
+              STACK_ID=$(cat /tmp/stacks.json | jq -r '.[] | select(.Name == "vaoluoitv") | .Id')
               
-              # Step 6: Start new container
-              echo "🚀 Step 6: Starting new container..."
-              START_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/start_response.json -X POST \
-                "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/$NEW_CONTAINER_ID/start" \
-                -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
-              
-              echo "Start HTTP Code: $START_RESPONSE"
-              
-              if [ "$START_RESPONSE" -ge 200 ] && [ "$START_RESPONSE" -lt 300 ]; then
-                echo "✅ Container started successfully with latest image"
-                echo "🎉 Manual recreation completed successfully!"
+              if [ -n "$STACK_ID" ] && [ "$STACK_ID" != "null" ]; then
+                echo "✅ Found stack 'vaoluoitv' with ID: $STACK_ID"
+                
+                # Get stack details
+                STACK_DETAILS_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/stack_details.json \
+                  "${{ secrets.PORTAINER_URL }}/api/stacks/$STACK_ID" \
+                  -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
+                
+                if [ "$STACK_DETAILS_RESPONSE" -eq 200 ]; then
+                  STACK_DETAILS=$(cat /tmp/stack_details.json)
+                  STACK_COMPOSE_FILE=$(echo "$STACK_DETAILS" | jq -r '.StackFileContent')
+                  STACK_ENV=$(echo "$STACK_DETAILS" | jq -r '.Env // []')
+                  
+                  # Create update payload according to Portainer CE 2.32.2 API format
+                  UPDATE_PAYLOAD=$(jq -n \
+                    --arg stackFileContent "$STACK_COMPOSE_FILE" \
+                    --argjson env "$STACK_ENV" \
+                    '{
+                      "stackFileContent": $stackFileContent,
+                      "env": $env,
+                      "prune": true,
+                      "pullImage": true
+                    }')
+                  
+                  echo "$UPDATE_PAYLOAD" > /tmp/update_payload.json
+                  
+                  # Update stack to recreate containers with latest images
+                  echo "🔄 Updating stack to recreate containers with latest images..."
+                  UPDATE_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/update_response.json -X PUT \
+                    "${{ secrets.PORTAINER_URL }}/api/stacks/$STACK_ID?endpointId=${{ secrets.PORTAINER_ENDPOINT_ID }}" \
+                    -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}" \
+                    -H "Content-Type: application/json" \
+                    -d @/tmp/update_payload.json)
+                  
+                  echo "Stack Update HTTP Code: $UPDATE_RESPONSE"
+                  
+                  if [ "$UPDATE_RESPONSE" -ge 200 ] && [ "$UPDATE_RESPONSE" -lt 300 ]; then
+                    echo "✅ Stack updated successfully - containers will be recreated"
+                    CREATE_RESPONSE=200
+                  else
+                    echo "⚠️ Stack update failed (HTTP: $UPDATE_RESPONSE)"
+                    CREATE_RESPONSE=500
+                  fi
+                else
+                  echo "⚠️ Failed to get stack details"
+                  CREATE_RESPONSE=500
+                fi
               else
-                echo "⚠️ Container start response: $START_RESPONSE"
-                echo "Response:"
-                cat /tmp/start_response.json 2>/dev/null || echo "No response body"
+                echo "⚠️ Stack 'vaoluoitv' not found"
+                CREATE_RESPONSE=500
               fi
             else
-              echo "❌ Container create response: $CREATE_RESPONSE"
+              echo "⚠️ Failed to get stacks list"
+              CREATE_RESPONSE=500
+            fi
+            
+            echo "Stack Update HTTP Code: $CREATE_RESPONSE"
+            
+            if [ "$CREATE_RESPONSE" -ge 200 ] && [ "$CREATE_RESPONSE" -lt 300 ]; then
+              echo "✅ Stack updated successfully - containers will be recreated with latest images"
+              echo "🎉 Simplified recreation completed successfully!"
+            else
+              echo "❌ Stack update failed (HTTP: $CREATE_RESPONSE)"
               echo "Response:"
-              cat /tmp/create_response.json 2>/dev/null || echo "No response body"
+              cat /tmp/update_response.json 2>/dev/null || echo "No response body"
             fi
           
           # Wait and check final status
