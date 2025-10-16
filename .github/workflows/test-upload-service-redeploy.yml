@@ -1,6 +1,9 @@
 name: Test Upload Service Redeploy
 
 on:
+  push:
+    branches:
+      - 'release/**'
   workflow_dispatch:
 
 jobs:
@@ -22,6 +25,27 @@ jobs:
           set -e
           
           echo "🚀 Testing Upload Service Redeploy..."
+          echo "Event: ${{ github.event_name }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit: ${{ github.sha }}"
+          
+          # Check if this workflow file was changed to trigger redeploy
+          echo "🔍 Checking if workflow files were changed..."
+          if [ "${{ github.event_name }}" == "push" ]; then
+            # Get changed files in this commit
+            CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "")
+            echo "Changed files: $CHANGED_FILES"
+            
+            # Check if any workflow files were changed
+            if echo "$CHANGED_FILES" | grep -q "\.github/workflows/"; then
+              echo "✅ Workflow files were changed - triggering upload_service redeploy test"
+            else
+              echo "ℹ️ No workflow files changed - simulating upload_service change"
+            fi
+          else
+            # For manual trigger, always test
+            echo "ℹ️ Manual trigger - testing upload_service redeploy"
+          fi
           
           # Test Portainer API connection first
           echo "🔍 Testing Portainer API connection..."
