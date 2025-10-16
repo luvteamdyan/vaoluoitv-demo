@@ -5,79 +5,186 @@ on:
     branches:
       - 'release/**'
   workflow_dispatch:
+    inputs:
+      force_redeploy:
+        description: 'Force redeploy all services (ignore change detection)'
+        required: false
+        type: boolean
+        default: false
+      specific_services:
+        description: 'Specific services to redeploy (comma-separated, e.g., api_gateway,upload_service)'
+        required: false
+        type: string
+        default: ''
 
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
-      services-to-redeploy: ${{ steps.changes.outputs.services-to-redeploy }}
+      # Service change flags
+      api-gateway-changed: ${{ steps.changes.outputs.api-gateway }}
+      secure-api-service-changed: ${{ steps.changes.outputs.secure-api-service }}
+      upload-service-changed: ${{ steps.changes.outputs.upload-service }}
+      crawler-worker-service-changed: ${{ steps.changes.outputs.crawler-worker-service }}
+      game-service-changed: ${{ steps.changes.outputs.game-service }}
+      admin-dashboard-changed: ${{ steps.changes.outputs.admin-dashboard }}
+      studio-sanity-changed: ${{ steps.changes.outputs.studio-sanity }}
+      
+      # Services to redeploy
+      services-to-redeploy: ${{ steps.set-services.outputs.services-to-redeploy }}
+      
+      # Action type
+      action-type: ${{ steps.set-action.outputs.action-type }}
+      
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Detect changes
-        uses: dorny/paths-filter@v2
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Detect changes in services
         id: changes
+        uses: dorny/paths-filter@v2
         with:
+          base: ${{ github.event.before || 'HEAD~1' }}
           filters: |
-            api_gateway:
+            api-gateway:
               - 'api_gateway/**'
-            upload_service:
-              - 'upload_service/**'
-            game_service:
-              - 'game_service/**'
-            admin_dashboard:
-              - 'admin_dashboard/**'
-            secure_api_service:
+            secure-api-service:
               - 'secure_api_service/**'
-            crawler_worker_service:
+            upload-service:
+              - 'upload_service/**'
+            crawler-worker-service:
               - 'crawler_worker_service/**'
-            studio_sanity:
+            game-service:
+              - 'game_service/**'
+            admin-dashboard:
+              - 'admin_dashboard/**'
+            studio-sanity:
               - 'studio_sanity/**'
 
       - name: Set services to redeploy
+        id: set-services
         run: |
-          SERVICES=()
+          SERVICES_TO_REDEPLOY=()
           
-          if [ "${{ steps.changes.outputs.api_gateway }}" == "true" ]; then
-            SERVICES+=("api_gateway")
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            if [ "${{ github.event.inputs.force_redeploy }}" == "true" ]; then
+              # Force redeploy all services
+              SERVICES_TO_REDEPLOY=("api_gateway" "secure_api_service" "upload_service" "crawler_worker_service" "game_service" "admin_dashboard" "studio_sanity")
+            elif [ -n "${{ github.event.inputs.specific_services }}" ]; then
+              # Specific services provided
+              IFS=',' read -ra SERVICES <<< "${{ github.event.inputs.specific_services }}"
+              for service in "${SERVICES[@]}"; do
+                # Trim whitespace
+                service=$(echo "$service" | xargs)
+                SERVICES_TO_REDEPLOY+=("$service")
+              done
+            fi
+          else
+            # Auto trigger - only redeploy changed services
+            if [ "${{ steps.changes.outputs.api-gateway }}" == "true" ]; then
+              SERVICES_TO_REDEPLOY+=("api_gateway")
+            fi
+            if [ "${{ steps.changes.outputs.secure-api-service }}" == "true" ]; then
+              SERVICES_TO_REDEPLOY+=("secure_api_service")
+            fi
+            if [ "${{ steps.changes.outputs.upload-service }}" == "true" ]; then
+              SERVICES_TO_REDEPLOY+=("upload_service")
+            fi
+            if [ "${{ steps.changes.outputs.crawler-worker-service }}" == "true" ]; then
+              SERVICES_TO_REDEPLOY+=("crawler_worker_service")
+            fi
+            if [ "${{ steps.changes.outputs.game-service }}" == "true" ]; then
+              SERVICES_TO_REDEPLOY+=("game_service")
+            fi
+            if [ "${{ steps.changes.outputs.admin-dashboard }}" == "true" ]; then
+              SERVICES_TO_REDEPLOY+=("admin_dashboard")
+            fi
+            if [ "${{ steps.changes.outputs.studio-sanity }}" == "true" ]; then
+              SERVICES_TO_REDEPLOY+=("studio_sanity")
+            fi
           fi
           
-          if [ "${{ steps.changes.outputs.upload_service }}" == "true" ]; then
-            SERVICES+=("upload_service")
-          fi
-          
-          if [ "${{ steps.changes.outputs.game_service }}" == "true" ]; then
-            SERVICES+=("game_service")
-          fi
-          
-          if [ "${{ steps.changes.outputs.admin_dashboard }}" == "true" ]; then
-            SERVICES+=("admin_dashboard")
-          fi
-          
-          if [ "${{ steps.changes.outputs.secure_api_service }}" == "true" ]; then
-            SERVICES+=("secure_api_service")
-          fi
-          
-          if [ "${{ steps.changes.outputs.crawler_worker_service }}" == "true" ]; then
-            SERVICES+=("crawler_worker_service")
-          fi
-          
-          if [ "${{ steps.changes.outputs.studio_sanity }}" == "true" ]; then
-            SERVICES+=("studio_sanity")
-          fi
-          
-          if [ ${#SERVICES[@]} -eq 0 ]; then
-            echo "No services changed"
+          # Convert array to JSON format
+          if [ ${#SERVICES_TO_REDEPLOY[@]} -eq 0 ]; then
             echo "services-to-redeploy=[]" >> $GITHUB_OUTPUT
           else
-            echo "Services to redeploy: ${SERVICES[*]}"
-            printf -v SERVICES_JSON '%s,' "${SERVICES[@]}"
-            SERVICES_JSON="[${SERVICES_JSON%,}]"
-            echo "services-to-redeploy=$SERVICES_JSON" >> $GITHUB_OUTPUT
+            JSON_ARRAY="["
+            for i in "${!SERVICES_TO_REDEPLOY[@]}"; do
+              if [ $i -gt 0 ]; then
+                JSON_ARRAY+=","
+              fi
+              JSON_ARRAY+="\"${SERVICES_TO_REDEPLOY[$i]}\""
+            done
+            JSON_ARRAY+="]"
+            echo "services-to-redeploy=$JSON_ARRAY" >> $GITHUB_OUTPUT
           fi
+
+      - name: Set action type
+        id: set-action
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ "${{ github.event.inputs.force_redeploy }}" == "true" ]; then
+            echo "action-type=force_redeploy" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ github.event.inputs.specific_services }}" ]; then
+            echo "action-type=manual_redeploy" >> $GITHUB_OUTPUT
+          else
+            # Check if any service changed
+            CHANGED_SERVICES=0
+            if [ "${{ steps.changes.outputs.api-gateway }}" == "true" ]; then CHANGED_SERVICES=$((CHANGED_SERVICES + 1)); fi
+            if [ "${{ steps.changes.outputs.secure-api-service }}" == "true" ]; then CHANGED_SERVICES=$((CHANGED_SERVICES + 1)); fi
+            if [ "${{ steps.changes.outputs.upload-service }}" == "true" ]; then CHANGED_SERVICES=$((CHANGED_SERVICES + 1)); fi
+            if [ "${{ steps.changes.outputs.crawler-worker-service }}" == "true" ]; then CHANGED_SERVICES=$((CHANGED_SERVICES + 1)); fi
+            if [ "${{ steps.changes.outputs.game-service }}" == "true" ]; then CHANGED_SERVICES=$((CHANGED_SERVICES + 1)); fi
+            if [ "${{ steps.changes.outputs.admin-dashboard }}" == "true" ]; then CHANGED_SERVICES=$((CHANGED_SERVICES + 1)); fi
+            if [ "${{ steps.changes.outputs.studio-sanity }}" == "true" ]; then CHANGED_SERVICES=$((CHANGED_SERVICES + 1)); fi
+            
+            if [ $CHANGED_SERVICES -gt 0 ]; then
+              echo "action-type=auto_redeploy" >> $GITHUB_OUTPUT
+            else
+              echo "action-type=skip_redeploy" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Show change detection results
+        run: |
+          echo "### 🔍 Change Detection Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Trigger:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Service Changes:**" >> $GITHUB_STEP_SUMMARY
+          echo "- API Gateway: ${{ steps.changes.outputs.api-gateway }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Secure API Service: ${{ steps.changes.outputs.secure-api-service }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Upload Service: ${{ steps.changes.outputs.upload-service }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Crawler Worker Service: ${{ steps.changes.outputs.crawler-worker-service }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Game Service: ${{ steps.changes.outputs.game-service }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Admin Dashboard: ${{ steps.changes.outputs.admin-dashboard }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Studio Sanity: ${{ steps.changes.outputs.studio-sanity }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Services to Redeploy:** ${{ steps.set-services.outputs.services-to-redeploy }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Action Type:** ${{ steps.set-action.outputs.action-type }}" >> $GITHUB_STEP_SUMMARY
+
+  # Skip redeploy notification
+  skip-redeploy:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.action-type == 'skip_redeploy'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip redeploy notification
+        run: |
+          echo "### ⏭️ Redeploy Skipped" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "No service changes detected - skipping redeploy" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "ℹ️ Only workflow files or other non-service files were changed." >> $GITHUB_STEP_SUMMARY
 
   build-and-push:
     needs: detect-changes
@@ -114,7 +221,13 @@ jobs:
 
   redeploy-with-portainer:
     needs: [detect-changes, build-and-push]
-    if: always() && needs.detect-changes.outputs.services-to-redeploy != '[]' && needs.detect-changes.outputs.services-to-redeploy != ''
+    if: |
+      always() && 
+      (needs.detect-changes.outputs.action-type == 'auto_redeploy' || 
+       needs.detect-changes.outputs.action-type == 'force_redeploy' ||
+       needs.detect-changes.outputs.action-type == 'manual_redeploy') &&
+      (needs.detect-changes.result == 'success') &&
+      (needs.detect-changes.outputs.services-to-redeploy != '[]')
     runs-on: ubuntu-latest
     environment: production
     steps:
@@ -131,6 +244,7 @@ jobs:
           set -e
           
           echo "🚀 Starting Smart Redeploy with Portainer..."
+          echo "Action type: ${{ needs.detect-changes.outputs.action-type }}"
           echo "Services to redeploy: ${{ needs.detect-changes.outputs.services-to-redeploy }}"
           
           # Test Portainer API connection
@@ -313,6 +427,7 @@ jobs:
           echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
           echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Action Type:** ${{ needs.detect-changes.outputs.action-type }}" >> $GITHUB_STEP_SUMMARY
           echo "**Services to redeploy:** ${{ needs.detect-changes.outputs.services-to-redeploy }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Method:** Smart redeploy with Portainer API" >> $GITHUB_STEP_SUMMARY
