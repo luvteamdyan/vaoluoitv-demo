@@ -122,31 +122,55 @@ jobs:
             echo "⚠️ Failed to get container details (HTTP: $CONTAINER_DETAILS_RESPONSE)"
           fi
           
-            # Try Portainer's recreate endpoint with correct parameters
-            echo "🔄 Attempting Portainer recreate with pullImage option..."
-            RECREATE_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/recreate_response.json -X POST \
-              "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/$CONTAINER_ID/recreate?forceRemove=1&recreateVolumes=0&pullImage=1" \
+            # Manual recreation flow for Portainer CE (no recreate API)
+            echo "🔄 Starting manual recreation flow for Portainer CE..."
+            
+            # Step 1: Get container configuration
+            echo "📋 Step 1: Getting container configuration..."
+            CONTAINER_DETAILS_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/container_details.json \
+              "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/$CONTAINER_ID/json" \
               -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
-          
-          echo "Recreate HTTP Code: $RECREATE_RESPONSE"
-          
-          if [ "$RECREATE_RESPONSE" -ge 200 ] && [ "$RECREATE_RESPONSE" -lt 300 ]; then
-            echo "✅ Container recreated successfully with latest image using Portainer API"
-            echo "Response:"
-            cat /tmp/recreate_response.json 2>/dev/null || echo "No response body"
-          else
-            echo "⚠️ Portainer recreate failed (HTTP: $RECREATE_RESPONSE)"
-            echo "Response:"
-            cat /tmp/recreate_response.json 2>/dev/null || echo "No response body"
             
-            # Try alternative approach
-            echo ""
-            echo "🔄 Trying alternative approach - pull image and restart..."
+            if [ "$CONTAINER_DETAILS_RESPONSE" -ne 200 ]; then
+              echo "❌ Failed to get container details (HTTP: $CONTAINER_DETAILS_RESPONSE)"
+              exit 1
+            fi
             
-            # Pull latest image
-            echo "📦 Pulling latest image: $IMAGE_NAME:latest"
+            CONTAINER_DETAILS=$(cat /tmp/container_details.json)
+            CONTAINER_CONFIG=$(echo "$CONTAINER_DETAILS" | jq '.Config')
+            HOST_CONFIG=$(echo "$CONTAINER_DETAILS" | jq '.HostConfig')
+            NETWORK_SETTINGS=$(echo "$CONTAINER_DETAILS" | jq '.NetworkSettings')
+            CONTAINER_NAME=$(echo "$CONTAINER_DETAILS" | jq -r '.Name' | sed 's|^/||')
+            
+            echo "✅ Container configuration retrieved"
+            echo "Container name: $CONTAINER_NAME"
+            
+            # Step 2: Stop container
+            echo "🛑 Step 2: Stopping container..."
+            STOP_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/stop_response.json -X POST \
+              "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/$CONTAINER_ID/stop?t=30" \
+              -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
+            
+            echo "Stop HTTP Code: $STOP_RESPONSE"
+            
+            # Step 3: Remove container
+            echo "🗑️ Step 3: Removing container..."
+            REMOVE_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/remove_response.json -X DELETE \
+              "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/$CONTAINER_ID?v=1" \
+              -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
+            
+            echo "Remove HTTP Code: $REMOVE_RESPONSE"
+            
+            if [ "$REMOVE_RESPONSE" -ge 200 ] && [ "$REMOVE_RESPONSE" -lt 300 ]; then
+              echo "✅ Container removed successfully"
+            else
+              echo "⚠️ Container remove response: $REMOVE_RESPONSE"
+            fi
+            
+            # Step 4: Pull latest image
+            echo "📦 Step 4: Pulling latest image: $IMAGE_NAME:latest"
             PULL_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/pull_response.json -X POST \
-              "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/images/create?fromImage=$IMAGE_NAME:latest" \
+              "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/images/create?fromImage=$IMAGE_NAME&tag=latest" \
               -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
             
             echo "Pull HTTP Code: $PULL_RESPONSE"
@@ -157,20 +181,58 @@ jobs:
               echo "⚠️ Failed to pull image (HTTP: $PULL_RESPONSE)"
             fi
             
-            # Restart container
-            echo "🔄 Restarting container..."
-            RESTART_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/restart_response.json -X POST \
-              "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/$CONTAINER_ID/restart" \
-              -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
+            # Step 5: Create new container with old configuration
+            echo "🔄 Step 5: Creating new container with old configuration..."
             
-            echo "Restart HTTP Code: $RESTART_RESPONSE"
+            # Update image to latest in config
+            CONTAINER_CONFIG=$(echo "$CONTAINER_CONFIG" | jq --arg image "$IMAGE_NAME:latest" '.Image = $image')
             
-            if [ "$RESTART_RESPONSE" -ge 200 ] && [ "$RESTART_RESPONSE" -lt 300 ]; then
-              echo "✅ Container restarted successfully"
+            # Create recreate payload
+            RECREATE_PAYLOAD=$(jq -n \
+              --argjson config "$CONTAINER_CONFIG" \
+              --argjson hostConfig "$HOST_CONFIG" \
+              --argjson networkSettings "$NETWORK_SETTINGS" \
+              '{
+                "Config": $config,
+                "HostConfig": $hostConfig,
+                "NetworkSettings": $networkSettings
+              }')
+            
+            echo "$RECREATE_PAYLOAD" > /tmp/recreate_payload.json
+            
+            CREATE_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/create_response.json -X POST \
+              "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/create?name=$CONTAINER_NAME" \
+              -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}" \
+              -H "Content-Type: application/json" \
+              -d @/tmp/recreate_payload.json)
+            
+            echo "Create HTTP Code: $CREATE_RESPONSE"
+            
+            if [ "$CREATE_RESPONSE" -ge 200 ] && [ "$CREATE_RESPONSE" -lt 300 ]; then
+              NEW_CONTAINER_ID=$(cat /tmp/create_response.json | jq -r '.Id')
+              echo "✅ New container created: $NEW_CONTAINER_ID"
+              
+              # Step 6: Start new container
+              echo "🚀 Step 6: Starting new container..."
+              START_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/start_response.json -X POST \
+                "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/$NEW_CONTAINER_ID/start" \
+                -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
+              
+              echo "Start HTTP Code: $START_RESPONSE"
+              
+              if [ "$START_RESPONSE" -ge 200 ] && [ "$START_RESPONSE" -lt 300 ]; then
+                echo "✅ Container started successfully with latest image"
+                echo "🎉 Manual recreation completed successfully!"
+              else
+                echo "⚠️ Container start response: $START_RESPONSE"
+                echo "Response:"
+                cat /tmp/start_response.json 2>/dev/null || echo "No response body"
+              fi
             else
-              echo "⚠️ Failed to restart container (HTTP: $RESTART_RESPONSE)"
+              echo "❌ Container create response: $CREATE_RESPONSE"
+              echo "Response:"
+              cat /tmp/create_response.json 2>/dev/null || echo "No response body"
             fi
-          fi
           
           # Wait and check final status
           echo ""
