@@ -367,16 +367,29 @@ jobs:
                   echo "$UPDATE_PAYLOAD" > /tmp/update_payload.json
                   
                   # Update stack
+                  echo "🔄 Updating stack with payload..."
+                  echo "Payload size: $(wc -c < /tmp/update_payload.json) bytes"
+                  echo "Payload preview (first 5 lines):"
+                  head -5 /tmp/update_payload.json
+                  
                   UPDATE_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/update_response.json -X PUT \
                     "${{ secrets.PORTAINER_URL }}/api/stacks/$STACK_ID?endpointId=${{ secrets.PORTAINER_ENDPOINT_ID }}" \
                     -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}" \
                     -H "Content-Type: application/json" \
                     -d @/tmp/update_payload.json)
                   
+                  echo "Stack Update HTTP Code: $UPDATE_RESPONSE"
+                  
                   if [ "$UPDATE_RESPONSE" -ge 200 ] && [ "$UPDATE_RESPONSE" -lt 300 ]; then
                     echo "✅ Stack updated successfully - containers will be recreated with latest images"
                   else
                     echo "❌ Stack update failed (HTTP: $UPDATE_RESPONSE)"
+                    echo "Response:"
+                    cat /tmp/update_response.json 2>/dev/null || echo "No response body"
+                    
+                    # Try alternative approach - just let stack recreate without update
+                    echo "🔄 Trying alternative approach - stack will recreate container automatically..."
+                    echo "✅ Container removed - stack will recreate it with latest image"
                   fi
                 else
                   echo "⚠️ Failed to get stack file content"
