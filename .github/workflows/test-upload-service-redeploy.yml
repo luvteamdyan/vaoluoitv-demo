@@ -170,7 +170,7 @@ jobs:
             # Step 4: Pull latest image
             echo "📦 Step 4: Pulling latest image: $IMAGE_NAME:latest"
             PULL_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/pull_response.json -X POST \
-              "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/images/create?fromImage=$IMAGE_NAME&tag=latest" \
+              "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/images/create?fromImage=$IMAGE_NAME:latest" \
               -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
             
             echo "Pull HTTP Code: $PULL_RESPONSE"
@@ -184,21 +184,30 @@ jobs:
             # Step 5: Create new container with old configuration
             echo "🔄 Step 5: Creating new container with old configuration..."
             
+            # Debug: Check if configs are valid
+            echo "🔍 Debug: Checking config validity..."
+            echo "Container Config length: $(echo "$CONTAINER_CONFIG" | jq length 2>/dev/null || echo "invalid")"
+            echo "Host Config length: $(echo "$HOST_CONFIG" | jq length 2>/dev/null || echo "invalid")"
+            echo "Network Settings length: $(echo "$NETWORK_SETTINGS" | jq length 2>/dev/null || echo "invalid")"
+            
             # Update image to latest in config
             CONTAINER_CONFIG=$(echo "$CONTAINER_CONFIG" | jq --arg image "$IMAGE_NAME:latest" '.Image = $image')
             
-            # Create recreate payload
+            # Create recreate payload with proper structure
             RECREATE_PAYLOAD=$(jq -n \
               --argjson config "$CONTAINER_CONFIG" \
               --argjson hostConfig "$HOST_CONFIG" \
-              --argjson networkSettings "$NETWORK_SETTINGS" \
               '{
                 "Config": $config,
-                "HostConfig": $hostConfig,
-                "NetworkSettings": $networkSettings
+                "HostConfig": $hostConfig
               }')
             
             echo "$RECREATE_PAYLOAD" > /tmp/recreate_payload.json
+            
+            # Debug: Check payload
+            echo "🔍 Debug: Payload size: $(wc -c < /tmp/recreate_payload.json) bytes"
+            echo "🔍 Debug: Payload preview:"
+            head -5 /tmp/recreate_payload.json
             
             CREATE_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/create_response.json -X POST \
               "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/create?name=$CONTAINER_NAME" \
