@@ -1,0 +1,77 @@
+name: Debug Services Parsing
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_services:
+        description: 'Test services parsing (e.g., [upload_service] or upload_service)'
+        required: false
+        type: string
+        default: '[upload_service]'
+
+jobs:
+  debug-parsing:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Debug services parsing
+        run: |
+          echo "🔍 Testing services parsing logic..."
+          
+          # Simulate the services output from detect-changes job
+          SERVICES_TO_REDEPLOY="${{ github.event.inputs.test_services }}"
+          
+          echo "Raw services data: $SERVICES_TO_REDEPLOY"
+          echo "Type check:"
+          echo "$SERVICES_TO_REDEPLOY" | jq -e . >/dev/null 2>&1 && echo "✅ Valid JSON" || echo "❌ Not valid JSON"
+          
+          # Method 1: Try jq parsing
+          echo ""
+          echo "🔍 Method 1: jq parsing"
+          SERVICES_ARRAY_1=$(echo "$SERVICES_TO_REDEPLOY" | jq -r '.[]' 2>/dev/null || echo "FAILED")
+          echo "Result: $SERVICES_ARRAY_1"
+          
+          # Method 2: String manipulation
+          echo ""
+          echo "🔍 Method 2: String manipulation"
+          SERVICES_STRING=$(echo "$SERVICES_TO_REDEPLOY" | sed 's/\[//g' | sed 's/\]//g' | sed 's/"//g')
+          echo "After removing brackets and quotes: $SERVICES_STRING"
+          SERVICES_ARRAY_2=$(echo "$SERVICES_STRING" | tr ',' '\n' | xargs -I {} echo "{}" | tr -d ' ')
+          echo "Result: $SERVICES_ARRAY_2"
+          
+          # Method 3: Simple split
+          echo ""
+          echo "🔍 Method 3: Simple split"
+          SERVICES_ARRAY_3=$(echo "$SERVICES_TO_REDEPLOY" | sed 's/\[//g' | sed 's/\]//g' | sed 's/"//g' | tr ',' ' ')
+          echo "Result: $SERVICES_ARRAY_3"
+          
+          # Test the parsing logic
+          echo ""
+          echo "🔍 Testing parsing logic..."
+          if echo "$SERVICES_TO_REDEPLOY" | jq -e . >/dev/null 2>&1; then
+            echo "✅ Valid JSON array detected"
+            SERVICES_ARRAY=$(echo "$SERVICES_TO_REDEPLOY" | jq -r '.[]' 2>/dev/null || echo "")
+          else
+            echo "⚠️ Not valid JSON, trying to parse as string array..."
+            SERVICES_STRING=$(echo "$SERVICES_TO_REDEPLOY" | sed 's/\[//g' | sed 's/\]//g' | sed 's/"//g')
+            SERVICES_ARRAY=$(echo "$SERVICES_STRING" | tr ',' '\n' | xargs -I {} echo "{}" | tr -d ' ')
+          fi
+          
+          echo "Final parsed services: $SERVICES_ARRAY"
+          
+          # Test iteration
+          echo ""
+          echo "🔍 Testing iteration..."
+          for service in $SERVICES_ARRAY; do
+            echo "Processing service: '$service'"
+            case "$service" in
+              upload_service)
+                echo "✅ Matched upload_service"
+                ;;
+              *)
+                echo "❌ Unknown service: $service"
+                ;;
+            esac
+          done
