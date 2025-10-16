@@ -122,11 +122,11 @@ jobs:
             echo "⚠️ Failed to get container details (HTTP: $CONTAINER_DETAILS_RESPONSE)"
           fi
           
-          # Try Portainer's recreate endpoint with pullImage option
-          echo "🔄 Attempting Portainer recreate with pullImage option..."
-          RECREATE_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/recreate_response.json -X POST \
-            "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/$CONTAINER_ID/recreate?pullImage=true" \
-            -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
+            # Try Portainer's recreate endpoint with correct parameters
+            echo "🔄 Attempting Portainer recreate with pullImage option..."
+            RECREATE_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/recreate_response.json -X POST \
+              "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/$CONTAINER_ID/recreate?forceRemove=1&recreateVolumes=0&pullImage=1" \
+              -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
           
           echo "Recreate HTTP Code: $RECREATE_RESPONSE"
           
