@@ -273,7 +273,17 @@ jobs:
           SERVICES_TO_REDEPLOY="${{ needs.detect-changes.outputs.services-to-redeploy }}"
           REDEPLOY_RESULTS=()
           
-          for service in $(echo "$SERVICES_TO_REDEPLOY" | jq -r '.[]'); do
+          # Parse services array properly
+          echo "🔍 Parsing services to redeploy..."
+          SERVICES_ARRAY=$(echo "$SERVICES_TO_REDEPLOY" | jq -r '.[]' 2>/dev/null || echo "")
+          
+          if [ -z "$SERVICES_ARRAY" ]; then
+            echo "⚠️ No services to redeploy or invalid JSON format"
+            echo "Raw services data: $SERVICES_TO_REDEPLOY"
+            exit 1
+          fi
+          
+          for service in $SERVICES_ARRAY; do
             echo ""
             echo "🔄 Processing service: $service"
             
@@ -322,21 +332,43 @@ jobs:
                 ;;
             esac
             
-            # Find container ID
-            CONTAINER_ID=$(echo "$CONTAINERS_JSON" | jq -r ".[] | select(.Names[] | contains(\"$CONTAINER_PATTERN\")) | .Id")
+            # Find container ID using proper jq syntax
+            echo "🔍 Looking for container with pattern: $CONTAINER_PATTERN"
+            CONTAINER_ID=$(echo "$CONTAINERS_JSON" | jq -r ".[] | select(.Names[] | contains(\"$CONTAINER_PATTERN\")) | .Id" 2>/dev/null || echo "")
             
             if [ -z "$CONTAINER_ID" ] || [ "$CONTAINER_ID" == "null" ]; then
               echo "⚠️ Container for $service not found (pattern: $CONTAINER_PATTERN)"
               echo "Available containers:"
-              echo "$CONTAINERS_JSON" | jq -r '.[] | .Names[]' | head -10
+              echo "$CONTAINERS_JSON" | jq -r '.[] | .Names[]' 2>/dev/null | head -10 || echo "Failed to parse container names"
               REDEPLOY_RESULTS+=("$service:NOT_FOUND")
               continue
             fi
             
             echo "✅ Found container: $CONTAINER_ID"
             
-            # Step 1: Pull latest image first
-            echo "🔄 Pulling latest image: $IMAGE_NAME:latest"
+            # Step 1: Try Portainer's recreate endpoint with pullImage option first
+            echo "🔄 Attempting Portainer recreate with pullImage option..."
+            RECREATE_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/recreate_response.json -X POST \
+              "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/$CONTAINER_ID/recreate?pullImage=true" \
+              -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
+            
+            echo "Recreate HTTP Code: $RECREATE_RESPONSE"
+            
+            if [ "$RECREATE_RESPONSE" -ge 200 ] && [ "$RECREATE_RESPONSE" -lt 300 ]; then
+              echo "✅ Container recreated successfully with latest image using Portainer API"
+              REDEPLOY_RESULTS+=("$service:SUCCESS")
+              continue
+            else
+              echo "⚠️ Portainer recreate failed (HTTP: $RECREATE_RESPONSE), trying alternative approach..."
+              echo "Response:"
+              cat /tmp/recreate_response.json 2>/dev/null || echo "No response body"
+            fi
+            
+            # Step 2: Alternative approach - Manual recreation
+            echo "🔄 Using manual recreation approach..."
+            
+            # Pull latest image first
+            echo "📦 Pulling latest image: $IMAGE_NAME:latest"
             PULL_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/pull_response.json -X POST \
               "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/images/create?fromImage=$IMAGE_NAME:latest" \
               -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
@@ -344,19 +376,19 @@ jobs:
             if [ "$PULL_RESPONSE" -ge 200 ] && [ "$PULL_RESPONSE" -lt 300 ]; then
               echo "✅ Latest image pulled successfully"
             else
-              echo "⚠️ Failed to pull image (HTTP: $PULL_RESPONSE), but continuing with recreate..."
+              echo "⚠️ Failed to pull image (HTTP: $PULL_RESPONSE), but continuing with recreation..."
             fi
             
-            # Step 2: Get container details for recreation
+            # Get container details for recreation
             echo "📋 Getting container details for recreation..."
             CONTAINER_DETAILS_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/container_details.json \
               "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/$CONTAINER_ID/json" \
               -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
             
             if [ "$CONTAINER_DETAILS_RESPONSE" -ne 200 ]; then
-              echo "⚠️ Failed to get container details, trying alternative approach..."
+              echo "⚠️ Failed to get container details, using simple stop/remove approach..."
               
-              # Alternative: Stop and remove container, then let stack recreate it
+              # Simple approach: Stop and remove container, let stack recreate it
               echo "🛑 Stopping container..."
               STOP_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/stop_response.json -X POST \
                 "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/$CONTAINER_ID/stop?t=30" \
@@ -368,7 +400,7 @@ jobs:
                 -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
               
               if [ "$REMOVE_RESPONSE" -ge 200 ] && [ "$REMOVE_RESPONSE" -lt 300 ]; then
-                echo "✅ Container removed successfully - will be recreated by stack"
+                echo "✅ Container removed successfully - will be recreated by stack with latest image"
                 REDEPLOY_RESULTS+=("$service:REMOVED_FOR_RECREATION")
               else
                 echo "⚠️ Container remove response: $REMOVE_RESPONSE"
@@ -377,8 +409,8 @@ jobs:
               continue
             fi
             
-            # Step 3: Recreate container with latest image
-            echo "🔄 Recreating container with latest image..."
+            # Step 3: Manual recreation with container details
+            echo "🔄 Recreating container manually with latest image..."
             
             # Get container configuration
             CONTAINER_DETAILS=$(cat /tmp/container_details.json)
@@ -468,7 +500,7 @@ jobs:
           if [ "$FINAL_CONTAINERS_RESPONSE" -eq 200 ]; then
             FINAL_CONTAINERS_JSON=$(cat /tmp/final_containers.json)
             echo "📊 Final containers status:"
-            echo "$FINAL_CONTAINERS_JSON" | jq -r '.[] | select(.Names[] | contains("-prod")) | {Names: .Names, State: .State, Image: .Image}' | head -10
+            echo "$FINAL_CONTAINERS_JSON" | jq -r '.[] | select(.Names[] | contains("-prod")) | {Names: .Names, State: .State, Image: .Image}' 2>/dev/null | head -10 || echo "Failed to parse final container status"
           fi
           
           echo ""
