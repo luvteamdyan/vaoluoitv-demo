@@ -186,18 +186,32 @@ jobs:
               if [ -n "$STACK_ID" ] && [ "$STACK_ID" != "null" ]; then
                 echo "✅ Found stack 'vaoluoitv' with ID: $STACK_ID"
                 
-                # Get stack details
-                STACK_DETAILS_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/stack_details.json \
-                  "${{ secrets.PORTAINER_URL }}/api/stacks/$STACK_ID" \
+                # Get stack file content using /api/stacks/{id}/file
+                echo "📋 Getting stack file content..."
+                STACK_FILE_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/stack_file.json \
+                  "${{ secrets.PORTAINER_URL }}/api/stacks/$STACK_ID/file" \
                   -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
                 
-                if [ "$STACK_DETAILS_RESPONSE" -eq 200 ]; then
-                  STACK_DETAILS=$(cat /tmp/stack_details.json)
-                  STACK_COMPOSE_FILE=$(echo "$STACK_DETAILS" | jq -r '.StackFileContent')
-                  STACK_ENV=$(echo "$STACK_DETAILS" | jq -r '.Env // []')
+                if [ "$STACK_FILE_RESPONSE" -eq 200 ]; then
+                  STACK_FILE_CONTENT=$(cat /tmp/stack_file.json)
+                  STACK_COMPOSE_FILE=$(echo "$STACK_FILE_CONTENT" | jq -r '.StackFileContent')
                   
-                  echo "📋 Stack details retrieved"
+                  echo "✅ Stack file content retrieved"
                   echo "Compose file size: $(echo "$STACK_COMPOSE_FILE" | wc -c) characters"
+                  
+                  # Get stack details for environment variables
+                  STACK_DETAILS_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/stack_details.json \
+                    "${{ secrets.PORTAINER_URL }}/api/stacks/$STACK_ID" \
+                    -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
+                  
+                  if [ "$STACK_DETAILS_RESPONSE" -eq 200 ]; then
+                    STACK_DETAILS=$(cat /tmp/stack_details.json)
+                    STACK_ENV=$(echo "$STACK_DETAILS" | jq -r '.Env // []')
+                    echo "✅ Stack details retrieved for environment variables"
+                  else
+                    echo "⚠️ Failed to get stack details for env vars, using empty env"
+                    STACK_ENV="[]"
+                  fi
                   
                   # Create update payload according to Portainer CE 2.32.2 API format
                   UPDATE_PAYLOAD=$(jq -n \
@@ -231,7 +245,7 @@ jobs:
                     cat /tmp/update_response.json 2>/dev/null || echo "No response body"
                   fi
                 else
-                  echo "⚠️ Failed to get stack details (HTTP: $STACK_DETAILS_RESPONSE)"
+                  echo "⚠️ Failed to get stack file content (HTTP: $STACK_FILE_RESPONSE)"
                 fi
               else
                 echo "⚠️ Stack 'vaoluoitv' not found"
