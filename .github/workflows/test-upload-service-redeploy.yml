@@ -167,30 +167,13 @@ jobs:
               echo "⚠️ Container remove response: $REMOVE_RESPONSE"
             fi
             
-            # Step 4: Pull latest image (skip if fails, continue with recreation)
-            echo "📦 Step 4: Pulling latest image: $IMAGE_NAME:latest"
-            PULL_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/pull_response.json -X POST \
-              "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/images/create?fromImage=$IMAGE_NAME:latest" \
-              -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
+            # Step 4: Skip pull image (not needed for simple restart)
+            echo "📦 Step 4: Skipping pull image - using simple restart approach"
             
-            echo "Pull HTTP Code: $PULL_RESPONSE"
+            # Step 5: Update stack to recreate container
+            echo "🔄 Step 5: Updating stack to recreate container..."
             
-            if [ "$PULL_RESPONSE" -ge 200 ] && [ "$PULL_RESPONSE" -lt 300 ]; then
-              echo "✅ Latest image pulled successfully"
-            else
-              echo "⚠️ Failed to pull image (HTTP: $PULL_RESPONSE) - continuing with recreation anyway"
-              echo "Response:"
-              cat /tmp/pull_response.json 2>/dev/null || echo "No response body"
-            fi
-            
-            # Step 5: Create new container with simplified approach
-            echo "🔄 Step 5: Creating new container with simplified approach..."
-            
-            # Instead of complex recreation, let's use a simpler approach
-            # Just remove the container and let the stack recreate it
-            echo "🔄 Using simplified approach - let stack recreate the container..."
-            
-            # Get stack information to trigger recreation
+            # Get stack information
             echo "📋 Getting stack information..."
             STACKS_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/stacks.json \
               "${{ secrets.PORTAINER_URL }}/api/stacks" \
@@ -213,18 +196,8 @@ jobs:
                   STACK_COMPOSE_FILE=$(echo "$STACK_DETAILS" | jq -r '.StackFileContent')
                   STACK_ENV=$(echo "$STACK_DETAILS" | jq -r '.Env // []')
                   
-                  # Debug: Check compose file format
-                  echo "🔍 Debug: Checking compose file format..."
-                  echo "Compose file length: $(echo "$STACK_COMPOSE_FILE" | wc -c) characters"
-                  echo "Compose file first 5 lines:"
-                  echo "$STACK_COMPOSE_FILE" | head -5
-                  
-                  # Validate compose file format
-                  if echo "$STACK_COMPOSE_FILE" | head -1 | grep -q "^version:"; then
-                    echo "✅ Compose file has version header"
-                  else
-                    echo "⚠️ Compose file missing version header"
-                  fi
+                  echo "📋 Stack details retrieved"
+                  echo "Compose file size: $(echo "$STACK_COMPOSE_FILE" | wc -c) characters"
                   
                   # Create update payload according to Portainer CE 2.32.2 API format
                   UPDATE_PAYLOAD=$(jq -n \
@@ -234,17 +207,13 @@ jobs:
                       "stackFileContent": $stackFileContent,
                       "env": $env,
                       "prune": true,
-                      "pullImage": false
+                      "pullImage": true
                     }')
                   
                   echo "$UPDATE_PAYLOAD" > /tmp/update_payload.json
                   
-                  # Debug: Check payload
-                  echo "🔍 Debug: Payload size: $(wc -c < /tmp/update_payload.json) bytes"
-                  echo "🔍 Debug: Payload valid: $(jq . /tmp/update_payload.json >/dev/null 2>&1 && echo "yes" || echo "no")"
-                  
-                  # Update stack to recreate containers with latest images
-                  echo "🔄 Updating stack to recreate containers with latest images..."
+                  # Update stack using PUT /api/stacks/{id}?endpointId={endpointId}
+                  echo "🔄 Updating stack using PUT API..."
                   UPDATE_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/update_response.json -X PUT \
                     "${{ secrets.PORTAINER_URL }}/api/stacks/$STACK_ID?endpointId=${{ secrets.PORTAINER_ENDPOINT_ID }}" \
                     -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}" \
@@ -254,34 +223,21 @@ jobs:
                   echo "Stack Update HTTP Code: $UPDATE_RESPONSE"
                   
                   if [ "$UPDATE_RESPONSE" -ge 200 ] && [ "$UPDATE_RESPONSE" -lt 300 ]; then
-                    echo "✅ Stack updated successfully - containers will be recreated"
-                    CREATE_RESPONSE=200
+                    echo "✅ Stack updated successfully - containers will be recreated with latest images"
+                    echo "🎉 Stack update completed successfully!"
                   else
-                    echo "⚠️ Stack update failed (HTTP: $UPDATE_RESPONSE)"
-                    CREATE_RESPONSE=500
+                    echo "❌ Stack update failed (HTTP: $UPDATE_RESPONSE)"
+                    echo "Response:"
+                    cat /tmp/update_response.json 2>/dev/null || echo "No response body"
                   fi
                 else
-                  echo "⚠️ Failed to get stack details"
-                  CREATE_RESPONSE=500
+                  echo "⚠️ Failed to get stack details (HTTP: $STACK_DETAILS_RESPONSE)"
                 fi
               else
                 echo "⚠️ Stack 'vaoluoitv' not found"
-                CREATE_RESPONSE=500
               fi
             else
-              echo "⚠️ Failed to get stacks list"
-              CREATE_RESPONSE=500
-            fi
-            
-            echo "Stack Update HTTP Code: $CREATE_RESPONSE"
-            
-            if [ "$CREATE_RESPONSE" -ge 200 ] && [ "$CREATE_RESPONSE" -lt 300 ]; then
-              echo "✅ Stack updated successfully - containers will be recreated with latest images"
-              echo "🎉 Simplified recreation completed successfully!"
-            else
-              echo "❌ Stack update failed (HTTP: $CREATE_RESPONSE)"
-              echo "Response:"
-              cat /tmp/update_response.json 2>/dev/null || echo "No response body"
+              echo "⚠️ Failed to get stacks list (HTTP: $STACKS_RESPONSE)"
             fi
           
           # Wait and check final status
@@ -303,3 +259,4 @@ jobs:
           
           echo ""
           echo "🎉 Upload service redeploy test completed!"
+
