@@ -213,15 +213,14 @@ jobs:
                     STACK_ENV="[]"
                   fi
                   
-                  # Create update payload according to Portainer CE 2.32.2 API format
+                  # Create update payload according to tested format
                   UPDATE_PAYLOAD=$(jq -n \
                     --arg stackFileContent "$STACK_COMPOSE_FILE" \
-                    --argjson env "$STACK_ENV" \
                     '{
-                      "stackFileContent": $stackFileContent,
-                      "env": $env,
-                      "prune": true,
-                      "pullImage": true
+                      "StackFileContent": $stackFileContent,
+                      "Prune": false,
+                      "PullImage": true,
+                      "Recreate": true
                     }')
                   
                   echo "$UPDATE_PAYLOAD" > /tmp/update_payload.json
