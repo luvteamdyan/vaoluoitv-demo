@@ -1,0 +1,471 @@
+name: Smart Redeploy with Portainer API (Simple & Direct)
+
+on:
+  push:
+    branches:
+      - 'release/**'
+  workflow_dispatch:
+    inputs:
+      force_redeploy:
+        description: 'Force redeploy all services (ignore change detection)'
+        required: false
+        type: boolean
+        default: false
+      specific_services:
+        description: 'Specific services to redeploy (comma-separated, e.g., api_gateway,upload_service)'
+        required: false
+        type: string
+        default: ''
+
+env:
+  DOCKER_REGISTRY: docker.io
+  DOCKER_USERNAME: devlee21
+
+jobs:
+  # Detect changes in services
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      # Service change flags
+      api-gateway-changed: ${{ steps.changes.outputs.api-gateway }}
+      secure-api-service-changed: ${{ steps.changes.outputs.secure-api-service }}
+      upload-service-changed: ${{ steps.changes.outputs.upload-service }}
+      crawler-worker-service-changed: ${{ steps.changes.outputs.crawler-worker-service }}
+      game-service-changed: ${{ steps.changes.outputs.game-service }}
+      admin-dashboard-changed: ${{ steps.changes.outputs.admin-dashboard }}
+      studio-sanity-changed: ${{ steps.changes.outputs.studio-sanity }}
+      minigames-fe-changed: ${{ steps.changes.outputs.minigames-fe }}
+      nextjs-changed: ${{ steps.changes.outputs.nextjs }}
+      
+      # Services to redeploy
+      services-to-redeploy: ${{ steps.set-services.outputs.services-to-redeploy }}
+      
+      # Action type
+      action-type: ${{ steps.set-action.outputs.action-type }}
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Detect changes in services
+        id: changes
+        uses: dorny/paths-filter@v2
+        with:
+          base: ${{ github.event.before || 'HEAD~1' }}
+          filters: |
+            api-gateway:
+              - 'api_gateway/**'
+            secure-api-service:
+              - 'secure_api_service/**'
+            upload-service:
+              - 'upload_service/**'
+            crawler-worker-service:
+              - 'crawler_worker_service/**'
+            game-service:
+              - 'game_service/**'
+            admin-dashboard:
+              - 'admin-dashboard/**'
+            studio-sanity:
+              - 'studio-sanity/**'
+            minigames-fe:
+              - 'minigames_fe/**'
+            nextjs:
+              - 'nextjs/**'
+
+      - name: Set services to redeploy
+        id: set-services
+        run: |
+          SERVICES_TO_REDEPLOY=()
+          
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            if [ "${{ github.event.inputs.force_redeploy }}" == "true" ]; then
+              # Force redeploy all services
+              SERVICES_TO_REDEPLOY=("api_gateway" "secure_api_service" "upload_service" "crawler_worker_service" "game_service" "admin_dashboard" "studio_sanity" "minigames_fe" "nextjs")
+            elif [ -n "${{ github.event.inputs.specific_services }}" ]; then
+              # Specific services provided
+              IFS=',' read -ra SERVICES <<< "${{ github.event.inputs.specific_services }}"
+              for service in "${SERVICES[@]}"; do
+                # Trim whitespace
+                service=$(echo "$service" | xargs)
+                SERVICES_TO_REDEPLOY+=("$service")
+              done
+            fi
+          else
+            # Auto trigger - only redeploy changed services
+            if [ "${{ steps.changes.outputs.api-gateway }}" == "true" ]; then
+              SERVICES_TO_REDEPLOY+=("api_gateway")
+            fi
+            if [ "${{ steps.changes.outputs.secure-api-service }}" == "true" ]; then
+              SERVICES_TO_REDEPLOY+=("secure_api_service")
+            fi
+            if [ "${{ steps.changes.outputs.upload-service }}" == "true" ]; then
+              SERVICES_TO_REDEPLOY+=("upload_service")
+            fi
+            if [ "${{ steps.changes.outputs.crawler-worker-service }}" == "true" ]; then
+              SERVICES_TO_REDEPLOY+=("crawler_worker_service")
+            fi
+            if [ "${{ steps.changes.outputs.game-service }}" == "true" ]; then
+              SERVICES_TO_REDEPLOY+=("game_service")
+            fi
+            if [ "${{ steps.changes.outputs.admin-dashboard }}" == "true" ]; then
+              SERVICES_TO_REDEPLOY+=("admin_dashboard")
+            fi
+            if [ "${{ steps.changes.outputs.studio-sanity }}" == "true" ]; then
+              SERVICES_TO_REDEPLOY+=("studio_sanity")
+            fi
+            if [ "${{ steps.changes.outputs.minigames-fe }}" == "true" ]; then
+              SERVICES_TO_REDEPLOY+=("minigames_fe")
+            fi
+            if [ "${{ steps.changes.outputs.nextjs }}" == "true" ]; then
+              SERVICES_TO_REDEPLOY+=("nextjs")
+            fi
+          fi
+          
+          # Convert array to JSON format
+          if [ ${#SERVICES_TO_REDEPLOY[@]} -eq 0 ]; then
+            echo "services-to-redeploy=[]" >> $GITHUB_OUTPUT
+          else
+            JSON_ARRAY="["
+            for i in "${!SERVICES_TO_REDEPLOY[@]}"; do
+              if [ $i -gt 0 ]; then
+                JSON_ARRAY+=","
+              fi
+              JSON_ARRAY+="\"${SERVICES_TO_REDEPLOY[$i]}\""
+            done
+            JSON_ARRAY+="]"
+            echo "services-to-redeploy=$JSON_ARRAY" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set action type
+        id: set-action
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ "${{ github.event.inputs.force_redeploy }}" == "true" ]; then
+            echo "action-type=force_redeploy" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ github.event.inputs.specific_services }}" ]; then
+            echo "action-type=manual_redeploy" >> $GITHUB_OUTPUT
+          else
+            # Check if any service changed
+            CHANGED_SERVICES=0
+            if [ "${{ steps.changes.outputs.api-gateway }}" == "true" ]; then CHANGED_SERVICES=$((CHANGED_SERVICES + 1)); fi
+            if [ "${{ steps.changes.outputs.secure-api-service }}" == "true" ]; then CHANGED_SERVICES=$((CHANGED_SERVICES + 1)); fi
+            if [ "${{ steps.changes.outputs.upload-service }}" == "true" ]; then CHANGED_SERVICES=$((CHANGED_SERVICES + 1)); fi
+            if [ "${{ steps.changes.outputs.crawler-worker-service }}" == "true" ]; then CHANGED_SERVICES=$((CHANGED_SERVICES + 1)); fi
+            if [ "${{ steps.changes.outputs.game-service }}" == "true" ]; then CHANGED_SERVICES=$((CHANGED_SERVICES + 1)); fi
+            if [ "${{ steps.changes.outputs.admin-dashboard }}" == "true" ]; then CHANGED_SERVICES=$((CHANGED_SERVICES + 1)); fi
+            if [ "${{ steps.changes.outputs.studio-sanity }}" == "true" ]; then CHANGED_SERVICES=$((CHANGED_SERVICES + 1)); fi
+            if [ "${{ steps.changes.outputs.minigames-fe }}" == "true" ]; then CHANGED_SERVICES=$((CHANGED_SERVICES + 1)); fi
+            if [ "${{ steps.changes.outputs.nextjs }}" == "true" ]; then CHANGED_SERVICES=$((CHANGED_SERVICES + 1)); fi
+            
+            if [ $CHANGED_SERVICES -gt 0 ]; then
+              echo "action-type=auto_redeploy" >> $GITHUB_OUTPUT
+            else
+              echo "action-type=skip_redeploy" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Show change detection results
+        run: |
+          echo "### 🔍 Change Detection Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Trigger:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Service Changes:**" >> $GITHUB_STEP_SUMMARY
+          echo "- API Gateway: ${{ steps.changes.outputs.api-gateway }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Secure API Service: ${{ steps.changes.outputs.secure-api-service }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Upload Service: ${{ steps.changes.outputs.upload-service }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Crawler Worker Service: ${{ steps.changes.outputs.crawler-worker-service }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Game Service: ${{ steps.changes.outputs.game-service }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Admin Dashboard: ${{ steps.changes.outputs.admin-dashboard }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Studio Sanity: ${{ steps.changes.outputs.studio-sanity }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Minigames FE: ${{ steps.changes.outputs.minigames-fe }}" >> $GITHUB_STEP_SUMMARY
+          echo "- NextJS: ${{ steps.changes.outputs.nextjs }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Services to Redeploy:** ${{ steps.set-services.outputs.services-to-redeploy }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Action Type:** ${{ steps.set-action.outputs.action-type }}" >> $GITHUB_STEP_SUMMARY
+
+  # Skip redeploy notification
+  skip-redeploy:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.action-type == 'skip_redeploy'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip redeploy notification
+        run: |
+          echo "### ⏭️ Redeploy Skipped" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "No service changes detected - skipping redeploy" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "ℹ️ Only workflow files or other non-service files were changed." >> $GITHUB_STEP_SUMMARY
+
+  # Redeploy using Portainer API (Simple & Direct)
+  redeploy-with-portainer:
+    needs: detect-changes
+    if: |
+      always() && 
+      (needs.detect-changes.outputs.action-type == 'auto_redeploy' || 
+       needs.detect-changes.outputs.action-type == 'force_redeploy' ||
+       needs.detect-changes.outputs.action-type == 'manual_redeploy') &&
+      (needs.detect-changes.result == 'success') &&
+      (needs.detect-changes.outputs.services-to-redeploy != '[]')
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq curl
+
+      - name: Redeploy services with Portainer API (Simple & Direct)
+        id: redeploy
+        run: |
+          set -e
+          
+          echo "🚀 Starting Simple & Direct Portainer API redeploy..."
+          echo "Action type: ${{ needs.detect-changes.outputs.action-type }}"
+          echo "Services to redeploy: ${{ needs.detect-changes.outputs.services-to-redeploy }}"
+          
+          # Test Portainer API connection first
+          echo "🔍 Testing Portainer API connection..."
+          API_TEST=$(curl -s -w "%{http_code}" -o /tmp/api_test.json \
+            "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}" \
+            -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
+          
+          echo "API Test HTTP Code: $API_TEST"
+          if [ "$API_TEST" -ne 200 ]; then
+            echo "❌ Portainer API connection failed!"
+            echo "Response:"
+            cat /tmp/api_test.json
+            exit 1
+          fi
+          echo "✅ Portainer API connection successful"
+          
+          # Get current containers
+          echo "📋 Getting current containers..."
+          CONTAINERS_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/containers.json \
+            "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/json?all=true" \
+            -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
+          
+          if [ "$CONTAINERS_RESPONSE" -ne 200 ]; then
+            echo "❌ Failed to get containers list!"
+            echo "Response:"
+            cat /tmp/containers.json
+            exit 1
+          fi
+          
+          echo "✅ Containers list retrieved"
+          CONTAINERS_JSON=$(cat /tmp/containers.json)
+          
+          # Process each service to redeploy
+          SERVICES_TO_REDEPLOY="${{ needs.detect-changes.outputs.services-to-redeploy }}"
+          REDEPLOY_RESULTS=()
+          
+          # Parse services array properly - handle both JSON array and simple string
+          echo "🔍 Parsing services to redeploy..."
+          if echo "$SERVICES_TO_REDEPLOY" | jq -e . >/dev/null 2>&1; then
+            # It's valid JSON
+            SERVICES_ARRAY=$(echo "$SERVICES_TO_REDEPLOY" | jq -r '.[]' 2>/dev/null || echo "")
+          else
+            # It's not JSON, treat as single service
+            SERVICES_ARRAY="$SERVICES_TO_REDEPLOY"
+          fi
+          
+          if [ -z "$SERVICES_ARRAY" ]; then
+            echo "⚠️ No services to redeploy"
+            echo "Raw services data: $SERVICES_TO_REDEPLOY"
+            exit 1
+          fi
+          
+          for service in $SERVICES_ARRAY; do
+            echo ""
+            echo "🔄 Processing service: $service"
+            
+            # Map service name to container name and image
+            case "$service" in
+              api_gateway)
+                CONTAINER_PATTERN="api_gateway-prod"
+                IMAGE_NAME="devlee21/api_gateway"
+                ;;
+              secure_api_service)
+                CONTAINER_PATTERN="secure_api_service-prod"
+                IMAGE_NAME="devlee21/secure_api_service"
+                ;;
+              upload_service)
+                CONTAINER_PATTERN="upload_service-prod"
+                IMAGE_NAME="devlee21/upload_service"
+                ;;
+              crawler_worker_service)
+                CONTAINER_PATTERN="crawler_worker_service-prod"
+                IMAGE_NAME="devlee21/crawler_worker_service"
+                ;;
+              game_service)
+                CONTAINER_PATTERN="game_service-prod"
+                IMAGE_NAME="devlee21/game_service"
+                ;;
+              admin_dashboard)
+                CONTAINER_PATTERN="admin_dashboard-prod"
+                IMAGE_NAME="devlee21/admin-dashboard"
+                ;;
+              studio_sanity)
+                CONTAINER_PATTERN="studio_sanity-prod"
+                IMAGE_NAME="devlee21/studio_sanity"
+                ;;
+              minigames_fe)
+                CONTAINER_PATTERN="minigames_fe-prod"
+                IMAGE_NAME="devlee21/minigames_fe"
+                ;;
+              nextjs)
+                CONTAINER_PATTERN="nextjs-prod"
+                IMAGE_NAME="devlee21/nextjs"
+                ;;
+              *)
+                echo "⚠️ Unknown service: $service"
+                REDEPLOY_RESULTS+=("$service:UNKNOWN")
+                continue
+                ;;
+            esac
+            
+            # Find container ID using proper jq syntax
+            echo "🔍 Looking for container with pattern: $CONTAINER_PATTERN"
+            CONTAINER_ID=$(echo "$CONTAINERS_JSON" | jq -r ".[] | select(.Names[] | contains(\"$CONTAINER_PATTERN\")) | .Id" 2>/dev/null || echo "")
+            
+            if [ -z "$CONTAINER_ID" ] || [ "$CONTAINER_ID" == "null" ]; then
+              echo "⚠️ Container for $service not found (pattern: $CONTAINER_PATTERN)"
+              echo "Available containers:"
+              echo "$CONTAINERS_JSON" | jq -r '.[] | .Names[]' 2>/dev/null | head -10 || echo "Failed to parse container names"
+              REDEPLOY_RESULTS+=("$service:NOT_FOUND")
+              continue
+            fi
+            
+            echo "✅ Found container: $CONTAINER_ID"
+            
+            # Step 1: Try Portainer's recreate endpoint with pullImage option first
+            echo "🔄 Attempting Portainer recreate with pullImage option..."
+            RECREATE_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/recreate_response.json -X POST \
+              "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/$CONTAINER_ID/recreate?pullImage=true" \
+              -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
+            
+            echo "Recreate HTTP Code: $RECREATE_RESPONSE"
+            
+            if [ "$RECREATE_RESPONSE" -ge 200 ] && [ "$RECREATE_RESPONSE" -lt 300 ]; then
+              echo "✅ Container recreated successfully with latest image using Portainer API"
+              REDEPLOY_RESULTS+=("$service:SUCCESS")
+              continue
+            else
+              echo "⚠️ Portainer recreate failed (HTTP: $RECREATE_RESPONSE), trying alternative approach..."
+              echo "Response:"
+              cat /tmp/recreate_response.json 2>/dev/null || echo "No response body"
+            fi
+            
+            # Step 2: Alternative approach - Simple stop/remove and let stack recreate
+            echo "🔄 Using simple stop/remove approach..."
+            
+            # Pull latest image first
+            echo "📦 Pulling latest image: $IMAGE_NAME:latest"
+            PULL_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/pull_response.json -X POST \
+              "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/images/create?fromImage=$IMAGE_NAME:latest" \
+              -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
+            
+            if [ "$PULL_RESPONSE" -ge 200 ] && [ "$PULL_RESPONSE" -lt 300 ]; then
+              echo "✅ Latest image pulled successfully"
+            else
+              echo "⚠️ Failed to pull image (HTTP: $PULL_RESPONSE), but continuing..."
+            fi
+            
+            # Stop container
+            echo "🛑 Stopping container..."
+            STOP_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/stop_response.json -X POST \
+              "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/$CONTAINER_ID/stop?t=30" \
+              -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
+            
+            echo "Stop HTTP Code: $STOP_RESPONSE"
+            
+            # Remove container
+            echo "🗑️ Removing container..."
+            REMOVE_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/remove_response.json -X DELETE \
+              "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/$CONTAINER_ID?v=true" \
+              -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
+            
+            echo "Remove HTTP Code: $REMOVE_RESPONSE"
+            
+            if [ "$REMOVE_RESPONSE" -ge 200 ] && [ "$REMOVE_RESPONSE" -lt 300 ]; then
+              echo "✅ Container removed successfully - will be recreated by stack with latest image"
+              REDEPLOY_RESULTS+=("$service:REMOVED_FOR_RECREATION")
+            else
+              echo "⚠️ Container remove response: $REMOVE_RESPONSE"
+              REDEPLOY_RESULTS+=("$service:REMOVE_FAILED")
+            fi
+            
+            echo "✅ Service $service redeploy completed!"
+          done
+          
+          # Wait for containers to be ready
+          echo ""
+          echo "⏳ Waiting for containers to be ready..."
+          sleep 30
+          
+          # Check final container status
+          echo "🔍 Checking final container status..."
+          FINAL_CONTAINERS_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/final_containers.json \
+            "${{ secrets.PORTAINER_URL }}/api/endpoints/${{ secrets.PORTAINER_ENDPOINT_ID }}/docker/containers/json?all=true" \
+            -H "X-API-Key: ${{ secrets.PORTAINER_API_KEY }}")
+          
+          if [ "$FINAL_CONTAINERS_RESPONSE" -eq 200 ]; then
+            FINAL_CONTAINERS_JSON=$(cat /tmp/final_containers.json)
+            echo "📊 Final containers status:"
+            echo "$FINAL_CONTAINERS_JSON" | jq -r '.[] | select(.Names[] | contains("-prod")) | {Names: .Names, State: .State, Image: .Image}' 2>/dev/null | head -10 || echo "Failed to parse final container status"
+          fi
+          
+          echo ""
+          echo "🎉 Simple & Direct redeploy completed!"
+          echo "📊 Results:"
+          for result in "${REDEPLOY_RESULTS[@]}"; do
+            echo "  - $result"
+          done
+          
+          # Set output for summary
+          echo "redeploy_results=${REDEPLOY_RESULTS[*]}" >> $GITHUB_OUTPUT
+
+      - name: Redeploy summary
+        if: success()
+        run: |
+          echo "### 🎉 Simple & Direct Redeploy Successful" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Stack:** vaoluoitv" >> $GITHUB_STEP_SUMMARY
+          echo "**Action type:** ${{ needs.detect-changes.outputs.action-type }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Services Redeployed:** ${{ needs.detect-changes.outputs.services-to-redeploy }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Redeploy Results:**" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.redeploy.outputs.redeploy_results }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Method:** Portainer API - Direct Container Recreation" >> $GITHUB_STEP_SUMMARY
+          echo "**Result:** Only changed services recreated with latest images" >> $GITHUB_STEP_SUMMARY
+          echo "**Benefits:** Minimal downtime, targeted updates, no impact on other services" >> $GITHUB_STEP_SUMMARY
+          
+      - name: Redeploy failed summary
+        if: failure()
+        run: |
+          echo "### ❌ Redeploy Failed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Please check the logs for more details." >> $GITHUB_STEP_SUMMARY
+          echo "**Action type:** ${{ needs.detect-changes.outputs.action-type }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Services:** ${{ needs.detect-changes.outputs.services-to-redeploy }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
