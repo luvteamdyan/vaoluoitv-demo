@@ -1,7 +1,7 @@
 services:
   # VaoLuoiTV Frontend Application (Next.js)
   vaoluoi-frontend:
-    image: devlee21/nextjs:latest
+    image: devlee21/vaoluoi-frontend:v1.0.0
     environment:
       - NODE_ENV=${NODE_ENV:-production}
       - NEXT_TELEMETRY_DISABLED=${NEXT_TELEMETRY_DISABLED:-1}
