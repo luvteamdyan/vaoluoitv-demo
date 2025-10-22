@@ -52,8 +52,17 @@ jobs:
 
       - name: Update docker-compose.yml
         run: |
+          # Hiển thị nội dung hiện tại
+          echo "Current docker-compose.yml content:"
+          grep "image:" ${{ env.COMPOSE_FILE }} || true
+          
           # Cập nhật image tag trong docker-compose.yml
-          sed -i "s|image: dyanle/vaoluoi-frontend:.*|image: ${{ steps.image_tag.outputs.tag }}|g" ${{ env.COMPOSE_FILE }}
+          sed -i "s|image: dyanle/vaoluoi-frontend:.*|image: ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image_tag.outputs.tag }}|g" ${{ env.COMPOSE_FILE }}
+          
+          # Hiển thị nội dung sau khi cập nhật
+          echo "Updated docker-compose.yml content:"
+          grep "image:" ${{ env.COMPOSE_FILE }} || true
+          
           echo "✅ Updated docker-compose.yml with tag: ${{ steps.image_tag.outputs.tag }}"
 
       - name: Configure Git
@@ -63,10 +72,17 @@ jobs:
 
       - name: Commit and push changes
         run: |
-          git add ${{ env.COMPOSE_FILE }}
-          git commit -m "🚀 Auto-update image tag to ${{ steps.image_tag.outputs.tag }} [skip ci]"
-          git push origin ${{ github.ref_name }}
-          echo "✅ Successfully pushed updated docker-compose.yml"
+          # Kiểm tra có thay đổi không
+          if git diff --quiet ${{ env.COMPOSE_FILE }}; then
+            echo "⚠️ No changes detected in docker-compose.yml"
+            echo "Current image tag might already be up to date"
+          else
+            echo "📝 Changes detected, committing..."
+            git add ${{ env.COMPOSE_FILE }}
+            git commit -m "🚀 Auto-update image tag to ${{ steps.image_tag.outputs.tag }} [skip ci]"
+            git push origin ${{ github.ref_name }}
+            echo "✅ Successfully pushed updated docker-compose.yml"
+          fi
 
       - name: Deployment summary
         run: |
