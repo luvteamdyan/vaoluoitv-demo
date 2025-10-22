@@ -1,0 +1,134 @@
+name: Portainer CE Deploy Pipeline
+
+on:
+  push:
+    branches:
+      - gitops-test
+  pull_request:
+    branches:
+      - gitops-test
+
+env:
+  DOCKER_REGISTRY: docker.io
+  IMAGE_NAME: dyanle/vaoluoi-frontend
+  COMPOSE_FILE: docker-compose.yml
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=v{{date 'YYYYMMDD'}}-{{sha}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./nextjs
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Get the image tag
+        id: image_tag
+        run: |
+          # Lấy tag đầu tiên từ metadata
+          TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Image tag: $TAG"
+
+      - name: Update docker-compose.yml
+        run: |
+          # Backup file gốc
+          cp ${{ env.COMPOSE_FILE }} ${{ env.COMPOSE_FILE }}.backup
+          
+          # Cập nhật image tag trong docker-compose.yml
+          sed -i "s|image: dyanle/vaoluoi-frontend:.*|image: ${{ steps.image_tag.outputs.tag }}|g" ${{ env.COMPOSE_FILE }}
+          
+          # Hiển thị thay đổi
+          echo "Updated docker-compose.yml:"
+          diff ${{ env.COMPOSE_FILE }}.backup ${{ env.COMPOSE_FILE }} || true
+
+      - name: Verify docker-compose.yml changes
+        run: |
+          echo "Current image in docker-compose.yml:"
+          grep "image:" ${{ env.COMPOSE_FILE }} || true
+
+      - name: Configure Git
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+      - name: Commit and push changes
+        run: |
+          # Kiểm tra có thay đổi không
+          if git diff --quiet ${{ env.COMPOSE_FILE }}; then
+            echo "No changes to commit"
+          else
+            git add ${{ env.COMPOSE_FILE }}
+            git commit -m "🚀 Auto-update image tag to ${{ steps.image_tag.outputs.tag }} [skip ci]"
+            git push origin ${{ github.ref_name }}
+            echo "✅ Successfully pushed updated docker-compose.yml"
+          fi
+
+      - name: Create deployment summary
+        run: |
+          echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`${{ steps.image_tag.outputs.tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 Next Steps:" >> $GITHUB_STEP_SUMMARY
+          echo "1. ✅ Docker image built and pushed to registry" >> $GITHUB_STEP_SUMMARY
+          echo "2. ✅ docker-compose.yml updated with new image tag" >> $GITHUB_STEP_SUMMARY
+          echo "3. ✅ Changes committed and pushed to repository" >> $GITHUB_STEP_SUMMARY
+          echo "4. 🔄 Portainer GitOps should detect changes and redeploy stack" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔍 Monitoring:" >> $GITHUB_STEP_SUMMARY
+          echo "- Check Portainer dashboard for deployment status" >> $GITHUB_STEP_SUMMARY
+          echo "- Monitor application logs in Portainer" >> $GITHUB_STEP_SUMMARY
+          echo "- Verify health checks are passing" >> $GITHUB_STEP_SUMMARY
+
+  notify:
+    needs: build-and-deploy
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+      - name: Deployment notification
+        run: |
+          if [ "${{ needs.build-and-deploy.result }}" == "success" ]; then
+            echo "✅ Deployment pipeline completed successfully!"
+            echo "🔄 Portainer GitOps should now redeploy the stack"
+          else
+            echo "❌ Deployment pipeline failed!"
+            echo "Please check the logs for more details"
+          fi
