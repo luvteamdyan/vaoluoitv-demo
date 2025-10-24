@@ -38,43 +38,16 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Generate image tag
-        id: image_tag
-        run: |
-          # Tạo tag đơn giản dựa trên commit SHA
-          TAG="${{ github.ref_name }}-${{ github.sha }}"
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "Image tag: $TAG"
-
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: ./nextjs
           platforms: linux/amd64
           push: true
-          tags: ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image_tag.outputs.tag }}
+          tags: |
+            ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      - name: Update docker-compose.yml
-        run: |
-          # Hiển thị nội dung hiện tại
-          echo "Current docker-compose.yml content:"
-          grep "image:" ${{ env.COMPOSE_FILE }} || true
-          
-          # Cập nhật image tag trong docker-compose.yml
-          sed -i "s|image: dyanle/vaoluoi-frontend:.*|image: ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image_tag.outputs.tag }}|g" ${{ env.COMPOSE_FILE }}
-          
-          # Hiển thị nội dung sau khi cập nhật
-          echo "Updated docker-compose.yml content:"
-          grep "image:" ${{ env.COMPOSE_FILE }} || true
-          
-          echo "✅ Updated docker-compose.yml with tag: ${{ steps.image_tag.outputs.tag }}"
-
-      - name: Configure Git
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
       
       - name: Test connection to agent
         run: |
@@ -83,13 +56,14 @@ jobs:
 
       - name: Deploy via Deploy Agent
         run: |
-          # Gọi deploy agent để update service
+          # Gọi deploy agent để update service với latest tag
           DEPLOY_URL="${{ secrets.DEPLOY_AGENT_URL || 'https://deploy-agent.yourdomain.com' }}"
-          IMAGE_FULL_NAME="${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image_tag.outputs.tag }}"
+          IMAGE_FULL_NAME="${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
           
           echo "🚀 Triggering deployment via Deploy Agent..."
           echo "Agent URL: $DEPLOY_URL"
           echo "Image: $IMAGE_FULL_NAME"
+          echo "Commit: ${{ github.sha }}"
           
           # Trigger deployment
           DEPLOY_RESPONSE=$(curl -s -w "%{http_code}" -X POST "$DEPLOY_URL/deploy" \
@@ -122,8 +96,8 @@ jobs:
       - name: Deployment summary
         run: |
           echo "## 🚀 Deployment Complete" >> $GITHUB_STEP_SUMMARY
-          echo "**Image:** \`${{ steps.image_tag.outputs.tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`latest\`" >> $GITHUB_STEP_SUMMARY
           echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Portainer GitOps will now redeploy the stack automatically." >> $GITHUB_STEP_SUMMARY
+          echo "Deploy agent updated the service with latest image." >> $GITHUB_STEP_SUMMARY
