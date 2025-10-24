@@ -75,6 +75,11 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
+      
+      - name: Test connection to agent
+        run: |
+          echo "Testing connection..."
+          curl -v -L --connect-timeout 10 https://deploy-agent.vaoluoitv.com/health || true
 
       - name: Deploy via Deploy Agent
         run: |
