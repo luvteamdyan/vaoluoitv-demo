@@ -12,16 +12,22 @@ env:
   DOCKER_REGISTRY: docker.io
   IMAGE_NAME: dyanle/vaoluoi-frontend
   COMPOSE_FILE: docker-compose.yml
+  STACK_NAME: vaoluoi-frontend
+  SERVICE_NAME: nextjs
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -70,19 +76,38 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
 
-      - name: Commit and push changes
+      - name: Trigger deployment via Deploy Agent
         run: |
-          # Kiểm tra có thay đổi không
-          if git diff --quiet ${{ env.COMPOSE_FILE }}; then
-            echo "⚠️ No changes detected in docker-compose.yml"
-            echo "Current image tag might already be up to date"
-          else
-            echo "📝 Changes detected, committing..."
-            git add ${{ env.COMPOSE_FILE }}
-            git commit -m "🚀 Auto-update image tag to ${{ steps.image_tag.outputs.tag }} [skip ci]"
-            git push origin ${{ github.ref_name }}
-            echo "✅ Successfully pushed updated docker-compose.yml"
-          fi
+          # Gọi deploy agent để update service
+          DEPLOY_URL="${{ secrets.DEPLOY_AGENT_URL || 'https://deploy-agent.yourdomain.com' }}"
+          IMAGE_FULL_NAME="${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image_tag.outputs.tag }}"
+          
+          echo "🚀 Triggering deployment via Deploy Agent..."
+          echo "Agent URL: $DEPLOY_URL"
+          echo "Image: $IMAGE_FULL_NAME"
+          
+          # Test agent health first
+          echo "🔍 Checking agent health..."
+          curl -f "$DEPLOY_URL/health" || {
+            echo "❌ Agent health check failed"
+            exit 1
+          }
+          
+          # Trigger deployment
+          curl -X POST "$DEPLOY_URL/deploy" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "stack": "${{ env.STACK_NAME }}",
+              "service": "${{ env.SERVICE_NAME }}",
+              "image": "'$IMAGE_FULL_NAME'",
+              "token": "${{ secrets.AGENT_TOKEN }}"
+            }' \
+            --max-time 60 \
+            --retry 3 \
+            --retry-delay 5 \
+            --fail-with-body
+          
+          echo "✅ Deployment triggered successfully"
 
       - name: Deployment summary
         run: |
