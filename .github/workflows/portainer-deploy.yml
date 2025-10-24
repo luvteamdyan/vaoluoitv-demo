@@ -86,15 +86,26 @@ jobs:
           echo "Agent URL: $DEPLOY_URL"
           echo "Image: $IMAGE_FULL_NAME"
           
-          # Test agent health first
+          # Test agent health first with better error handling
           echo "🔍 Checking agent health..."
-          curl -f "$DEPLOY_URL/health" || {
-            echo "❌ Agent health check failed"
-            exit 1
-          }
+          HEALTH_RESPONSE=$(curl -s -w "%{http_code}" "$DEPLOY_URL/health" || echo "000")
+          HTTP_CODE="${HEALTH_RESPONSE: -3}"
           
-          # Trigger deployment
-          curl -X POST "$DEPLOY_URL/deploy" \
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✅ Agent health check passed"
+          else
+            echo "❌ Agent health check failed with HTTP $HTTP_CODE"
+            echo "Response: ${HEALTH_RESPONSE%???}"
+            echo "Please check:"
+            echo "1. Deploy Agent is running and accessible"
+            echo "2. DEPLOY_AGENT_URL secret is set correctly"
+            echo "3. Network connectivity to the agent"
+            exit 1
+          fi
+          
+          # Trigger deployment with better error handling
+          echo "🚀 Triggering deployment..."
+          DEPLOY_RESPONSE=$(curl -s -w "%{http_code}" -X POST "$DEPLOY_URL/deploy" \
             -H "Content-Type: application/json" \
             -d '{
               "stack": "${{ env.STACK_NAME }}",
@@ -104,10 +115,22 @@ jobs:
             }' \
             --max-time 60 \
             --retry 3 \
-            --retry-delay 5 \
-            --fail-with-body
+            --retry-delay 5 || echo "000")
           
-          echo "✅ Deployment triggered successfully"
+          DEPLOY_HTTP_CODE="${DEPLOY_RESPONSE: -3}"
+          
+          if [ "$DEPLOY_HTTP_CODE" = "200" ]; then
+            echo "✅ Deployment triggered successfully"
+            echo "Response: ${DEPLOY_RESPONSE%???}"
+          else
+            echo "❌ Deployment failed with HTTP $DEPLOY_HTTP_CODE"
+            echo "Response: ${DEPLOY_RESPONSE%???}"
+            echo "Please check:"
+            echo "1. AGENT_TOKEN secret is set correctly"
+            echo "2. Stack and service names are valid"
+            echo "3. Docker image is accessible"
+            exit 1
+          fi
 
       - name: Deployment summary
         run: |
