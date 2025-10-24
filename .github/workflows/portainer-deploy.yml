@@ -12,8 +12,8 @@ env:
   DOCKER_REGISTRY: docker.io
   IMAGE_NAME: dyanle/vaoluoi-frontend
   COMPOSE_FILE: docker-compose.yml
-  STACK_NAME: vaoluoi-frontend
-  SERVICE_NAME: nextjs
+  STACK_NAME: vaoluoitv-test
+  SERVICE_NAME: vaoluoi-frontend
 
 jobs:
   build-and-deploy:
