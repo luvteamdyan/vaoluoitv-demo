@@ -19,19 +19,12 @@ pipeline {
         }
 
         stage('Build and Push Docker Image') {
-            agent {
-                docker {
-                    image 'docker:20.10.17'
-                    args '-v /var/run/docker.sock:/var/run/docker.sock'
-                }
-            }
             steps {
-                sh 'docker build -t $IMAGE -f nextjs/Dockerfile .'
-                withCredentials([usernamePassword(credentialsId: '76588328-ef1c-45fe-aadf-7a77a4e40c95', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
-                    sh '''
-                        echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin
-                        docker push $IMAGE
-                    '''
+                script {
+                    def dockerImage = docker.build("${IMAGE}", "-f nextjs/Dockerfile .")
+                    docker.withRegistry('https://index.docker.io/v1/', '76588328-ef1c-45fe-aadf-7a77a4e40c95') {
+                        dockerImage.push()
+                    }
                 }
             }
         }
