@@ -9,7 +9,6 @@ pipeline {
     environment {
         DOCKERHUB_CRED = credentials('76588328-ef1c-45fe-aadf-7a77a4e40c95')
         IMAGE_NAME = "dyanle/vaoluoi-frontend"
-        // Using Jenkins build number for tagging is a good practice
         IMAGE_TAG = "latest" 
         IMAGE = "${IMAGE_NAME}:${IMAGE_TAG}"
         // Add deploy agent URL and token from Jenkins credentials or environment
