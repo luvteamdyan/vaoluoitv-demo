@@ -21,7 +21,7 @@ pipeline {
         stage('Build and Push Docker Image') {
             steps {
                 script {
-                    def dockerImage = docker.build("${IMAGE}", "-f nextjs/Dockerfile .")
+                    def dockerImage = docker.build("${IMAGE}", "-f Dockerfile nextjs/")
                     docker.withRegistry('https://index.docker.io/v1/', '0db1c2ef-92e6-47cb-a06b-4abb9ce57383') {
                         dockerImage.push()
                     }
