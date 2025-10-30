@@ -6,7 +6,6 @@ pipeline {
         IMAGE_NAME = "dyanle/vaoluoi-frontend"
         IMAGE_TAG = "latest" 
         IMAGE = "${IMAGE_NAME}:${IMAGE_TAG}"
-        // Add deploy agent URL and token from Jenkins credentials or environment
         DEPLOY_AGENT_URL = "http://your-deploy-agent-host:5555/deploy" 
         DEPLOY_AGENT_TOKEN = "token1234" 
     }
@@ -20,12 +19,17 @@ pipeline {
 
         stage('Build and Push Docker Image') {
             steps {
-                script {
-                    def dockerImage = docker.build("${IMAGE}", "-f nextjs/Dockerfile .")
-                    docker.withRegistry('https://index.docker.io/v1/', '0db1c2ef-92e6-47cb-a06b-4abb9ce57383') {
-                        dockerImage.push()
-                    }
-                }
+                sh """
+                # Login to Docker Hub
+                echo \$DOCKERHUB_CRED_PSW | docker login -u \$DOCKERHUB_CRED_USR --password-stdin
+                
+                # CD to nextjs and build
+                cd nextjs
+                docker build -t ${IMAGE} .
+                
+                # Push image
+                docker push ${IMAGE}
+                """
             }
         }
 
