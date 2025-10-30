@@ -1,4 +1,4 @@
-# Multi-stage build for optimal production image
+
 FROM node:18-alpine AS base
 
 # Install dependencies only when needed
