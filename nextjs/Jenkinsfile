@@ -1,10 +1,5 @@
 pipeline {
-    agent {
-        dockerContainer {
-            image 'docker:20.10.17' // Use a specific docker image that has docker client
-            args '-v /var/run/docker.sock:/var/run/docker.sock' // Mount docker socket
-        }
-    }
+    agent any
 
     environment {
         DOCKERHUB_CRED = credentials('76588328-ef1c-45fe-aadf-7a77a4e40c95')
@@ -23,14 +18,15 @@ pipeline {
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Build and Push Docker Image') {
+            agent {
+                docker {
+                    image 'docker:20.10.17'
+                    args '-v /var/run/docker.sock:/var/run/docker.sock'
+                }
+            }
             steps {
                 sh 'docker build -t $IMAGE -f nextjs/Dockerfile .'
-            }
-        }
-
-        stage('Push Docker Image') {
-            steps {
                 withCredentials([usernamePassword(credentialsId: '76588328-ef1c-45fe-aadf-7a77a4e40c95', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
                     sh '''
                         echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin
