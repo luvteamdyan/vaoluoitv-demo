@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        DOCKERHUB_CRED = credentials('76588328-ef1c-45fe-aadf-7a77a4e40c95')
+        DOCKERHUB_CRED = credentials('0db1c2ef-92e6-47cb-a06b-4abb9ce57383')
         IMAGE_NAME = "dyanle/vaoluoi-frontend"
         IMAGE_TAG = "latest" 
         IMAGE = "${IMAGE_NAME}:${IMAGE_TAG}"
@@ -22,7 +22,7 @@ pipeline {
             steps {
                 script {
                     def dockerImage = docker.build("${IMAGE}", "-f nextjs/Dockerfile .")
-                    docker.withRegistry('https://index.docker.io/v1/', '76588328-ef1c-45fe-aadf-7a77a4e40c95') {
+                    docker.withRegistry('https://index.docker.io/v1/', '0db1c2ef-92e6-47cb-a06b-4abb9ce57383') {
                         dockerImage.push()
                     }
                 }
