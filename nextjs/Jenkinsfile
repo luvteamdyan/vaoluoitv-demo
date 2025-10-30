@@ -1,0 +1,37 @@
+pipeline {
+  agent any
+
+  environment {
+    DOCKERHUB_CRED = credentials('76588328-ef1c-45fe-aadf-7a77a4e40c95')
+    IMAGE = "dyanle/vaoluoi-frontend:latest"
+  }
+
+  stages {
+    stage('Checkout') {
+      steps {
+        git branch: 'jenkins-test', url: 'https://github.com/luvteamdyan/vaoluoitv-demo.git'
+      }
+    }
+
+    stage('Build Docker Image') {
+      steps {
+        sh 'docker build -t $IMAGE .'
+      }
+    }
+
+    stage('Push Docker Image') {
+      steps {
+        sh '''
+          echo $DOCKERHUB_CRED_PSW | docker login -u $DOCKERHUB_CRED_USR --password-stdin
+          docker push $IMAGE
+        '''
+      }
+    }
+
+    stage('Deploy to Swarm') {
+      steps {
+        sh 'docker service update --image $IMAGE vaoluoitv_frontend || true'
+      }
+    }
+  }
+}

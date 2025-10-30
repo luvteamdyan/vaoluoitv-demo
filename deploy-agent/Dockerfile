@@ -18,8 +18,8 @@ COPY . .
 # Create non-root user with docker group access
 RUN addgroup -g 1001 -S nodejs
 RUN adduser -S deploy-agent -u 1001
-# Create docker group with standard GID (will be overridden by docker-compose)
-RUN addgroup -g 999 -S docker
+# Create docker group (use system-assigned GID to avoid conflicts)
+RUN addgroup -S docker || true
 RUN adduser deploy-agent docker
 USER deploy-agent
 

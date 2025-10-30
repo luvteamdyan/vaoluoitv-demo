@@ -1,0 +1,294 @@
+name: Docker Build Pipeline
+
+on:
+  push:
+    branches:
+      - "release/v1_portainer"
+  workflow_dispatch:
+    inputs:
+      force_build:
+        description: "Force build all services (ignore change detection)"
+        required: false
+        type: boolean
+        default: false
+      specific_services:
+        description: "Specific services to build (comma-separated, e.g., api_gateway,upload_service)"
+        required: false
+        type: string
+        default: ""
+
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      # Service change flags
+      api-gateway-changed: ${{ steps.changes.outputs.api-gateway }}
+      crawler-worker-service-changed: ${{ steps.changes.outputs.crawler-worker-service }}
+      game-service-changed: ${{ steps.changes.outputs.game-service }}
+      admin-dashboard-changed: ${{ steps.changes.outputs.admin-dashboard }}
+      studio-sanity-changed: ${{ steps.changes.outputs.studio-sanity }}
+      nextjs-changed: ${{ steps.changes.outputs.nextjs }}
+
+      # Services to build
+      services-to-build: ${{ steps.set-services.outputs.services-to-build }}
+
+      # Action type
+      action-type: ${{ steps.set-action.outputs.action-type }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Detect changes in services
+        id: changes
+        uses: dorny/paths-filter@v2
+        with:
+          base: ${{ github.event.before || 'HEAD~1' }}
+          filters: |
+            api-gateway:
+              - 'api_gateway/**'
+            upload-service:
+              - 'upload_service/**'
+            game-service:
+              - 'game_service/**'
+            admin-dashboard:
+              - 'admin-dashboard/**'
+            studio-sanity:
+              - 'studio-sanity/**'
+            nextjs:
+              - 'nextjs/**'
+
+      - name: Set services to build
+        id: set-services
+        run: |
+          SERVICES_TO_BUILD=()
+
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            if [ "${{ github.event.inputs.force_build }}" == "true" ]; then
+              # Force build all services
+              SERVICES_TO_BUILD=("api_gateway" "upload_service" "game_service" "admin_dashboard" "studio_sanity" "nextjs")
+            elif [ -n "${{ github.event.inputs.specific_services }}" ]; then
+              # Specific services provided
+              IFS=',' read -ra SERVICES <<< "${{ github.event.inputs.specific_services }}"
+              for service in "${SERVICES[@]}"; do
+                # Trim whitespace
+                service=$(echo "$service" | xargs)
+                SERVICES_TO_BUILD+=("$service")
+              done
+            fi
+          else
+            # Auto trigger - only build changed services
+            if [ "${{ steps.changes.outputs.api-gateway }}" == "true" ]; then
+              SERVICES_TO_BUILD+=("api_gateway")
+            fi
+            if [ "${{ steps.changes.outputs.upload-service }}" == "true" ]; then
+              SERVICES_TO_BUILD+=("upload_service")
+            fi
+            if [ "${{ steps.changes.outputs.game-service }}" == "true" ]; then
+              SERVICES_TO_BUILD+=("game_service")
+            fi
+            if [ "${{ steps.changes.outputs.admin-dashboard }}" == "true" ]; then
+              SERVICES_TO_BUILD+=("admin_dashboard")
+            fi
+            if [ "${{ steps.changes.outputs.studio-sanity }}" == "true" ]; then
+              SERVICES_TO_BUILD+=("studio_sanity")
+            fi
+            if [ "${{ steps.changes.outputs.nextjs }}" == "true" ]; then
+              SERVICES_TO_BUILD+=("nextjs")
+            fi
+          fi
+
+          # Convert array to JSON format
+          if [ ${#SERVICES_TO_BUILD[@]} -eq 0 ]; then
+            echo "services-to-build=[]" >> $GITHUB_OUTPUT
+          else
+            JSON_ARRAY="["
+            for i in "${!SERVICES_TO_BUILD[@]}"; do
+              if [ $i -gt 0 ]; then
+                JSON_ARRAY+=","
+              fi
+              JSON_ARRAY+="\"${SERVICES_TO_BUILD[$i]}\""
+            done
+            JSON_ARRAY+="]"
+            echo "services-to-build=$JSON_ARRAY" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set action type
+        id: set-action
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ "${{ github.event.inputs.force_build }}" == "true" ]; then
+            echo "action-type=force_build" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ github.event.inputs.specific_services }}" ]; then
+            echo "action-type=manual_build" >> $GITHUB_OUTPUT
+          else
+            # Check if any service changed
+            CHANGED_SERVICES=0
+            if [ "${{ steps.changes.outputs.api-gateway }}" == "true" ]; then CHANGED_SERVICES=$((CHANGED_SERVICES + 1)); fi
+            if [ "${{ steps.changes.outputs.upload-service }}" == "true" ]; then CHANGED_SERVICES=$((CHANGED_SERVICES + 1)); fi
+            if [ "${{ steps.changes.outputs.game-service }}" == "true" ]; then CHANGED_SERVICES=$((CHANGED_SERVICES + 1)); fi
+            if [ "${{ steps.changes.outputs.admin-dashboard }}" == "true" ]; then CHANGED_SERVICES=$((CHANGED_SERVICES + 1)); fi
+            if [ "${{ steps.changes.outputs.studio-sanity }}" == "true" ]; then CHANGED_SERVICES=$((CHANGED_SERVICES + 1)); fi
+            if [ "${{ steps.changes.outputs.nextjs }}" == "true" ]; then CHANGED_SERVICES=$((CHANGED_SERVICES + 1)); fi
+            
+            if [ $CHANGED_SERVICES -gt 0 ]; then
+              echo "action-type=auto_build" >> $GITHUB_OUTPUT
+            else
+              echo "action-type=skip_build" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Show change detection results
+        run: |
+          echo "### Change Detection" >> $GITHUB_STEP_SUMMARY
+          echo "Services: ${{ steps.set-services.outputs.services-to-build }}" >> $GITHUB_STEP_SUMMARY
+
+  skip-build:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.action-type == 'skip_build'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip build notification
+        run: |
+          echo "### Build Skipped" >> $GITHUB_STEP_SUMMARY
+          echo "No service changes detected" >> $GITHUB_STEP_SUMMARY
+
+  build-and-push:
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.services-to-build != '[]' && needs.detect-changes.outputs.services-to-build != ''
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: ${{ fromJson(needs.detect-changes.outputs.services-to-build) }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWOR }}
+
+      - name: Build and push ${{ matrix.service }}
+        run: |
+          cd ${{ matrix.service }}
+          
+          # Build multi-arch image with latest tag
+          docker buildx build \
+            --platform linux/amd64 \
+            --tag devlee21/${{ matrix.service }}:latest \
+            --push \
+            .
+
+  deploy-via-agent:
+    needs: [detect-changes, build-and-push]
+    if: needs.detect-changes.outputs.services-to-build != '[]' && needs.detect-changes.outputs.services-to-build != ''
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: ${{ fromJson(needs.detect-changes.outputs.services-to-build) }}
+      fail-fast: false 
+      max-parallel: 5   
+    steps:
+      - name: Map service name
+        id: map
+        run: |
+          case "${{ matrix.service }}" in
+            nextjs) echo "name=vaoluoi-frontend" >> $GITHUB_OUTPUT ;;
+            api_gateway) echo "name=api_gateway" >> $GITHUB_OUTPUT ;;
+            admin_dashboard) echo "name=admin_dashboard" >> $GITHUB_OUTPUT ;;
+            upload_service) echo "name=upload_service" >> $GITHUB_OUTPUT ;;
+            studio_sanity) echo "name=studio_sanity" >> $GITHUB_OUTPUT ;;
+            *) echo "name=$(echo ${{ matrix.service }} | sed 's/_/-/g')" >> $GITHUB_OUTPUT ;;
+          esac
+
+      - name: Deploy ${{ matrix.service }} via Deploy Agent
+        id: deploy
+        env:
+          DEPLOY_URL: ${{ secrets.DEPLOY_AGENT_URL }}
+          AGENT_TOKEN: ${{ secrets.AGENT_TOKEN }}
+          SERVICE_NAME: ${{ steps.map.outputs.name }}
+          IMAGE_FULL: devlee21/${{ matrix.service }}:latest
+        run: |
+          max_attempts=3
+          attempt=1
+          success=false
+          
+          while [ $attempt -le $max_attempts ]; do
+            RESP=$(curl -s -w "\n%{http_code}" -X POST "$DEPLOY_URL/deploy" \
+              -H "Content-Type: application/json" \
+              -H "Accept: application/json" \
+              -d "{\"stack\":\"vaoluoitv\",\"service\":\"$SERVICE_NAME\",\"image\":\"$IMAGE_FULL\",\"token\":\"$AGENT_TOKEN\"}" \
+              --connect-timeout 10 \
+              --max-time 45 \
+              --retry 2 \
+              --retry-delay 1 \
+              --retry-max-time 50 || echo -e "\n000")
+            
+            HTTP_CODE=$(echo "$RESP" | tail -n1)
+            RESPONSE_BODY=$(echo "$RESP" | head -n-1)
+            
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "Deployed: $SERVICE_NAME"
+              success=true
+              break
+            else
+              echo "Attempt $attempt failed (HTTP $HTTP_CODE)"
+              
+              if [ $attempt -lt $max_attempts ]; then
+                sleep $((2 ** attempt))
+              fi
+            fi
+            
+            attempt=$((attempt + 1))
+          done
+          
+          if [ "$success" = false ]; then
+            echo "Deployment failed after $max_attempts attempts"
+            exit 1
+          fi
+
+      - name: Deployment result for ${{ matrix.service }}
+        if: always()
+        run: |
+          if [ "${{ steps.deploy.outcome }}" = "success" ]; then
+            echo "### ${{ matrix.service }} - SUCCESS" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ${{ matrix.service }} - FAILED" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "Service: ${{ steps.map.outputs.name }}" >> $GITHUB_STEP_SUMMARY
+          echo "Image: devlee21/${{ matrix.service }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+  deployment-report:
+    needs: [detect-changes, deploy-via-agent]
+    if: always() && needs.detect-changes.outputs.services-to-build != '[]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate deployment report
+        run: |
+          echo "## Deployment Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Branch: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "Commit: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "Services: ${{ needs.detect-changes.outputs.services-to-build }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.deploy-via-agent.result }}" = "success" ]; then
+            echo "Status: All services deployed" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ needs.deploy-via-agent.result }}" = "failure" ]; then
+            echo "Status: Some services failed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Status: ${{ needs.deploy-via-agent.result }}" >> $GITHUB_STEP_SUMMARY
+          fi
+
+

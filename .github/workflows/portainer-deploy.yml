@@ -10,23 +10,120 @@ on:
 
 env:
   DOCKER_REGISTRY: docker.io
-  IMAGE_NAME: dyanle/vaoluoi-frontend
+  # Image names (change if your docker repo naming differs)
+  FRONTEND_IMAGE: dyanle/vaoluoi-frontend
+  API_GATEWAY_IMAGE: dyanle/api_gateway
+  GAME_SERVICE_IMAGE: dyanle/game_service
+  MINIGAMES_FE_IMAGE: dyanle/minigames_fe
+  STUDIO_SANITY_IMAGE: dyanle/studio-sanity
+  UPLOAD_SERVICE_IMAGE: dyanle/upload_service
+  # Local contexts for builds (relative paths)
+  FRONTEND_CONTEXT: ./nextjs
+  API_GATEWAY_CONTEXT: ./api_gateway
+  GAME_SERVICE_CONTEXT: ./game_service
+  MINIGAMES_FE_CONTEXT: ./minigames_fe
+  STUDIO_SANITY_CONTEXT: ./studio-sanity
+  UPLOAD_SERVICE_CONTEXT: ./upload_service
   COMPOSE_FILE: docker-compose.yml
   STACK_NAME: vaoluoitv-test
-  SERVICE_NAME: vaoluoi-frontend
 
 jobs:
-  build-and-deploy:
+  detect-changes:
+    name: Detect changed services
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      count: ${{ steps.set-matrix.outputs.count }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build matrix of changed services
+        id: set-matrix
+        run: |
+          set -eu
+          echo "Detecting changed files between commits..."
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+            HEAD="${{ github.event.pull_request.head.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+            HEAD="${{ github.sha }}"
+          fi
+          echo "Base=$BASE Head=$HEAD"
+
+          # Ensure both refs are available
+          git fetch --no-tags --prune origin ${BASE} || true
+          git fetch --no-tags --prune origin ${HEAD} || true
+
+          CHANGED_FILES=$(git diff --name-only "$BASE" "$HEAD" || true)
+          echo "Changed files:\n$CHANGED_FILES"
+
+          # Helper to add a matrix entry
+          MATRIX_ITEMS=""
+          add_item() {
+            name="$1"; context="$2"; image="$3"; service="$4"
+            image_full="${{ env.DOCKER_REGISTRY }}/$image:latest"
+            item=$(printf '{"name":"%s","context":"%s","image":"%s","image_full":"%s","service":"%s"}' "$name" "$context" "$image" "$image_full" "$service")
+            if [ -z "$MATRIX_ITEMS" ]; then
+              MATRIX_ITEMS="$item"
+            else
+              MATRIX_ITEMS="$MATRIX_ITEMS,$item"
+            fi
+          }
+
+          # Check each service for touched files
+          if echo "$CHANGED_FILES" | grep -qE "^${{ env.FRONTEND_CONTEXT }}(/|$)"; then
+            add_item "frontend" "${{ env.FRONTEND_CONTEXT }}" "${{ env.FRONTEND_IMAGE }}" "vaoluoi-frontend"
+          fi
+          if echo "$CHANGED_FILES" | grep -qE "^${{ env.API_GATEWAY_CONTEXT }}(/|$)"; then
+            add_item "api_gateway" "${{ env.API_GATEWAY_CONTEXT }}" "${{ env.API_GATEWAY_IMAGE }}" "api_gateway"
+          fi
+          if echo "$CHANGED_FILES" | grep -qE "^${{ env.GAME_SERVICE_CONTEXT }}(/|$)"; then
+            add_item "game_service" "${{ env.GAME_SERVICE_CONTEXT }}" "${{ env.GAME_SERVICE_IMAGE }}" "game_service"
+          fi
+          if echo "$CHANGED_FILES" | grep -qE "^${{ env.MINIGAMES_FE_CONTEXT }}(/|$)"; then
+            add_item "minigames_fe" "${{ env.MINIGAMES_FE_CONTEXT }}" "${{ env.MINIGAMES_FE_IMAGE }}" "minigames_fe"
+          fi
+          if echo "$CHANGED_FILES" | grep -qE "^${{ env.STUDIO_SANITY_CONTEXT }}(/|$)"; then
+            add_item "studio-sanity" "${{ env.STUDIO_SANITY_CONTEXT }}" "${{ env.STUDIO_SANITY_IMAGE }}" "studio-sanity"
+          fi
+          if echo "$CHANGED_FILES" | grep -qE "^${{ env.UPLOAD_SERVICE_CONTEXT }}(/|$)"; then
+            add_item "upload_service" "${{ env.UPLOAD_SERVICE_CONTEXT }}" "${{ env.UPLOAD_SERVICE_IMAGE }}" "upload_service"
+          fi
+
+          # Build final matrix JSON
+          if [ -z "$MATRIX_ITEMS" ]; then
+            MATRIX_JSON="[]"
+            COUNT=0
+          else
+            MATRIX_JSON="[$MATRIX_ITEMS]"
+            # Count items by counting commas +1
+            COUNT=$(echo "$MATRIX_JSON" | awk -F, '{print NF-1+1}' 2>/dev/null || echo 1)
+          fi
+
+          echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
+          echo "count=$COUNT" >> $GITHUB_OUTPUT
+
+          echo "Matrix: $MATRIX_JSON"
+
+  build-and-push:
+    name: Build & Push changed services
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.count != '0' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
-    
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
 
       - name: Set up Docker Buildx
@@ -38,66 +135,63 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build and push Docker image
+      - name: Build and push image
         uses: docker/build-push-action@v5
         with:
-          context: ./nextjs
+          context: ${{ matrix.context }}
           platforms: linux/amd64
           push: true
-          tags: |
-            ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          tags: ${{ env.DOCKER_REGISTRY }}/${{ matrix.image }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      
-      - name: Test connection to agent
-        run: |
-          echo "Testing connection..."
-          curl -v -L --connect-timeout 10 https://deploy-agent.vaoluoitv.com/health || true
 
-      - name: Deploy via Deploy Agent
+  deploy-changed:
+    name: Deploy changed services
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.count != '0' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy changed services via Deploy Agent
+        env:
+          DEPLOY_URL: ${{ secrets.DEPLOY_AGENT_URL }}
+          AGENT_TOKEN: ${{ secrets.AGENT_TOKEN }}
+          STACK_NAME: ${{ env.STACK_NAME }}
+          MATRIX: ${{ needs.detect-changes.outputs.matrix }}
         run: |
-          # Gọi deploy agent để update service với latest tag
-          DEPLOY_URL="${{ secrets.DEPLOY_AGENT_URL || 'https://deploy-agent.yourdomain.com' }}"
-          IMAGE_FULL_NAME="${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
-          
-          echo "🚀 Triggering deployment via Deploy Agent..."
-          echo "Agent URL: $DEPLOY_URL"
-          echo "Image: $IMAGE_FULL_NAME"
-          echo "Commit: ${{ github.sha }}"
-          
-          # Trigger deployment
-          DEPLOY_RESPONSE=$(curl -s -w "%{http_code}" -X POST "$DEPLOY_URL/deploy" \
-            -H "Content-Type: application/json" \
-            -H "User-Agent: PostmanRuntime/7.32.3" \
-            -d '{
-              "stack": "${{ env.STACK_NAME }}",
-              "service": "${{ env.SERVICE_NAME }}",
-              "image": "'$IMAGE_FULL_NAME'",
-              "token": "${{ secrets.AGENT_TOKEN }}"
-            }' \
-            --max-time 60 \
-            --retry 2 \
-            --retry-delay 3 || echo "000")
-          
-          HTTP_CODE="${DEPLOY_RESPONSE: -3}"
-          RESPONSE_BODY="${DEPLOY_RESPONSE%???}"
-          
-          echo "Deploy HTTP code: $HTTP_CODE"
-          echo "Deploy response: $RESPONSE_BODY"
-          
-          if [ "$HTTP_CODE" = "200" ]; then
-            echo "✅ Deployment triggered successfully"
-          else
-            echo "❌ Deployment failed with HTTP $HTTP_CODE"
-            echo "Response: $RESPONSE_BODY"
-            exit 1
-          fi
+          set -eu
+          DEPLOY_URL="${DEPLOY_URL:-https://deploy-agent.yourdomain.com}"
+          echo "Deploy URL: $DEPLOY_URL"
+
+          python - <<'PY'
+import os, json, subprocess, sys
+matrix = json.loads(os.environ['MATRIX'])
+stack = os.environ.get('STACK_NAME')
+url = os.environ.get('DEPLOY_URL')
+token = os.environ.get('AGENT_TOKEN')
+if not matrix:
+    print('No services to deploy')
+    sys.exit(0)
+for entry in matrix:
+    service = entry.get('service')
+    image = entry.get('image_full')
+    print(f"-> Deploying {service} with image {image}")
+    payload = json.dumps({"stack": stack, "service": service, "image": image, "token": token})
+    proc = subprocess.run(["curl", "-s", "-w", "%{http_code}", "-X", "POST", url+"/deploy", "-H", "Content-Type: application/json", "-d", payload], capture_output=True, text=True)
+    out = proc.stdout
+    http = out[-3:]
+    body = out[:-3]
+    print('HTTP', http)
+    if http != '200':
+        print('Deploy failed for', service, 'response:', body)
+        sys.exit(1)
+    print('✅', service, 'deployed')
+print('All deployments completed')
+PY
 
       - name: Deployment summary
         run: |
           echo "## 🚀 Deployment Complete" >> $GITHUB_STEP_SUMMARY
-          echo "**Image:** \`latest\`" >> $GITHUB_STEP_SUMMARY
           echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Deploy agent updated the service with latest image." >> $GITHUB_STEP_SUMMARY
+          echo "Deployed changed services via deploy agent." >> $GITHUB_STEP_SUMMARY

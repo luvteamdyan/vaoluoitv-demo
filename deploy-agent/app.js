@@ -1,19 +1,9 @@
 import express from "express";
 import { exec } from "child_process";
 import { CONFIG } from "./config.js";
-import fs from "fs";
 
 const app = express();
 app.use(express.json());
-
-// Load allowlist
-let allowlist;
-try {
-  allowlist = JSON.parse(fs.readFileSync("./allowlist.json", "utf8"));
-} catch (error) {
-  console.error("Failed to load allowlist:", error.message);
-  process.exit(1);
-}
 
 app.post("/deploy", (req, res) => {
   const { stack, service, image, token } = req.body;
@@ -25,7 +15,7 @@ app.post("/deploy", (req, res) => {
   }
 
   // 2. Validate input
-  if (!allowlist.services.includes(service)) {
+  if (!CONFIG.ALLOWED_SERVICES.includes(service)) {
     console.warn(`[DENY] Service ${service} not allowed`);
     return res.status(400).json({ error: "Service not allowed" });
   }
@@ -38,7 +28,7 @@ app.post("/deploy", (req, res) => {
     return res.status(400).json({ error: "Stack name missing" });
   }
 
-  if (!allowlist.stacks.includes(stack)) {
+  if (!CONFIG.ALLOWED_STACKS.includes(stack)) {
     console.warn(`[DENY] Stack ${stack} not allowed`);
     return res.status(400).json({ error: "Stack not allowed" });
   }
