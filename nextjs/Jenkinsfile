@@ -1,37 +1,59 @@
 pipeline {
-  agent any
-
-  environment {
-    DOCKERHUB_CRED = credentials('76588328-ef1c-45fe-aadf-7a77a4e40c95')
-    IMAGE = "dyanle/vaoluoi-frontend:latest"
-  }
-
-  stages {
-    stage('Checkout') {
-      steps {
-        git branch: 'jenkins-test', url: 'https://github.com/luvteamdyan/vaoluoitv-demo.git'
-      }
+    agent {
+        docker {
+            image 'docker:20.10.17' // Use a specific docker image that has docker client
+            args '-v /var/run/docker.sock:/var/run/docker.sock' // Mount docker socket
+        }
     }
 
-    stage('Build Docker Image') {
-      steps {
-        sh 'docker build -t $IMAGE .'
-      }
+    environment {
+        DOCKERHUB_CRED = credentials('76588328-ef1c-45fe-aadf-7a77a4e40c95')
+        IMAGE_NAME = "dyanle/vaoluoi-frontend"
+        // Using Jenkins build number for tagging is a good practice
+        IMAGE_TAG = "latest" 
+        IMAGE = "${IMAGE_NAME}:${IMAGE_TAG}"
+        // Add deploy agent URL and token from Jenkins credentials or environment
+        DEPLOY_AGENT_URL = "http://your-deploy-agent-host:5555/deploy" 
+        DEPLOY_AGENT_TOKEN = "token1234" 
     }
 
-    stage('Push Docker Image') {
-      steps {
-        sh '''
-          echo $DOCKERHUB_CRED_PSW | docker login -u $DOCKERHUB_CRED_USR --password-stdin
-          docker push $IMAGE
-        '''
-      }
-    }
+    stages {
+        stage('Checkout') {
+            steps {
+                git branch: 'jenkins-test', url: 'https://github.com/luvteamdyan/vaoluoitv-demo.git'
+            }
+        }
 
-    stage('Deploy to Swarm') {
-      steps {
-        sh 'docker service update --image $IMAGE vaoluoitv_frontend || true'
-      }
+        stage('Build Docker Image') {
+            steps {
+                sh 'docker build -t $IMAGE -f nextjs/Dockerfile .'
+            }
+        }
+
+        stage('Push Docker Image') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: '76588328-ef1c-45fe-aadf-7a77a4e40c95', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
+                    sh '''
+                        echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin
+                        docker push $IMAGE
+                    '''
+                }
+            }
+        }
+
+        stage('Deploy via Agent') {
+            steps {
+                sh """
+                curl -X POST ${DEPLOY_AGENT_URL} \\
+                     -H "Content-Type: application/json" \\
+                     -d '{
+                           "stack": "vaoluoitv",
+                           "service": "vaoluoi-frontend",
+                           "image": "${IMAGE}",
+                           "token": "${DEPLOY_AGENT_TOKEN}"
+                         }'
+                """
+            }
+        }
     }
-  }
 }
