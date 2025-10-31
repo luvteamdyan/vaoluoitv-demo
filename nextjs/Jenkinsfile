@@ -4,10 +4,10 @@ pipeline {
     environment {
         DOCKERHUB_CRED = credentials('0db1c2ef-92e6-47cb-a06b-4abb9ce57383')
         IMAGE_NAME = "dyanle/vaoluoi-frontend"
-        IMAGE_TAG = "latest" 
+        IMAGE_TAG = "latest"
         IMAGE = "${IMAGE_NAME}:${IMAGE_TAG}"
-        DEPLOY_AGENT_URL = "http://your-deploy-agent-host:5555/deploy" 
-        DEPLOY_AGENT_TOKEN = "token1234" 
+        DEPLOY_AGENT_URL = "https://deploy-agent.vaoluoitv.com/deploy"
+        DEPLOY_AGENT_TOKEN = "token1234"
     }
 
     stages {
@@ -17,25 +17,69 @@ pipeline {
             }
         }
 
+                stage('Detect Changes') {
+                        steps {
+                                script {
+                                        // capture changed files between HEAD and previous commit (or list files in initial commit)
+                                        def changed = sh(returnStdout: true, script: '''
+                                                if git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+                                                    git diff --name-only HEAD^ HEAD || true
+                                                else
+                                                    git show --name-only --pretty=format: HEAD || true
+                                                fi
+                                        ''').trim()
+
+                                        if (changed) {
+                                                // check if any changed path starts with nextjs/
+                                                def hasNextjs = changed.split('\n').find { it?.trim()?.startsWith('nextjs/') }
+                                                if (hasNextjs) {
+                                                        echo "Changes detected in nextjs directory."
+                                                        env.CHANGES_DETECTED = 'true'
+                                                } else {
+                                                        echo "No changes in nextjs directory."
+                                                        env.CHANGES_DETECTED = 'false'
+                                                }
+                                        } else {
+                                                echo "No changed files detected."
+                                                env.CHANGES_DETECTED = 'false'
+                                        }
+                                }
+                        }
+                }
+
         stage('Build and Push Docker Image') {
+            when {
+                expression { return env.CHANGES_DETECTED == 'true' }
+            }
             steps {
-                sh """
-                # Login to Docker Hub
-                echo \$DOCKERHUB_CRED_PSW | docker login -u \$DOCKERHUB_CRED_USR --password-stdin
-                
-                # CD to nextjs and build
-                cd nextjs
-                docker build -t ${IMAGE} .
-                
-                # Push image
-                docker push ${IMAGE}
-                """
+                script {
+                    sh '''
+                    set -euo pipefail
+                    # Login to Docker Hub
+                    echo "$DOCKERHUB_CRED_PSW" | docker login -u "$DOCKERHUB_CRED_USR" --password-stdin
+
+                    # Build from nextjs directory
+                    cd nextjs
+                    docker build -t ${IMAGE} .
+
+                    # Push image
+                    docker push ${IMAGE}
+                    '''
+                    // mark success for deploy stage
+                    env.BUILD_PUSH_OK = 'true'
+                }
             }
         }
 
         stage('Deploy via Agent') {
+            when {
+                allOf {
+                    expression { return env.CHANGES_DETECTED == 'true' }
+                    expression { return env.BUILD_PUSH_OK == 'true' }
+                }
+            }
             steps {
-                sh """
+                sh '''
                 curl -X POST ${DEPLOY_AGENT_URL} \\
                      -H "Content-Type: application/json" \\
                      -d '{
@@ -44,7 +88,16 @@ pipeline {
                            "image": "${IMAGE}",
                            "token": "${DEPLOY_AGENT_TOKEN}"
                          }'
-                """
+                '''
+            }
+        }
+    }
+
+    post {
+        always {
+            script {
+                echo "CHANGES_DETECTED=${env.CHANGES_DETECTED ?: 'unset'}"
+                echo "BUILD_PUSH_OK=${env.BUILD_PUSH_OK ?: 'unset'}"
             }
         }
     }
