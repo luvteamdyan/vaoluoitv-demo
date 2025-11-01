@@ -8,6 +8,10 @@ pipeline {
         IMAGE = "${IMAGE_NAME}:${IMAGE_TAG}"
         DEPLOY_AGENT_URL = "https://deploy-agent.vaoluoitv.com/deploy"
         DEPLOY_AGENT_TOKEN = "token1234"
+        
+        // Telegram Bot Configuration
+        TELEGRAM_BOT_TOKEN = credentials('TELEGRAM_BOT_TOKEN') // Cần tạo credential trong Jenkins
+        TELEGRAM_CHAT_ID = credentials('TELEGRAM_CHAT_ID')     // Cần tạo credential trong Jenkins
     }
 
     stages {
@@ -91,6 +95,35 @@ pipeline {
                 '''
             }
         }
+        
+        stage('Notify Success') {
+            when {
+                allOf {
+                    expression { return env.CHANGES_DETECTED == 'true' }
+                    expression { return env.BUILD_PUSH_OK == 'true' }
+                }
+            }
+            steps {
+                script {
+                    def message = """
+✅ *Build Thành Công*
+📦 Project: vaoluoi-frontend
+🔖 Branch: ${env.GIT_BRANCH}
+🏗 Build: #${env.BUILD_NUMBER}
+🐳 Image: ${IMAGE}
+👤 User: ${env.BUILD_USER ?: 'Jenkins'}
+🕒 Time: ${new Date().format('dd/MM/yyyy HH:mm:ss')}
+                    """.trim()
+                    
+                    sh """
+                    curl -s -X POST https://api.telegram.org/bot\${TELEGRAM_BOT_TOKEN}/sendMessage \\
+                         -d chat_id=\${TELEGRAM_CHAT_ID} \\
+                         -d parse_mode=Markdown \\
+                         -d text='${message}'
+                    """
+                }
+            }
+        }
     }
 
     post {
@@ -98,6 +131,28 @@ pipeline {
             script {
                 echo "CHANGES_DETECTED=${env.CHANGES_DETECTED ?: 'unset'}"
                 echo "BUILD_PUSH_OK=${env.BUILD_PUSH_OK ?: 'unset'}"
+            }
+        }
+        failure {
+            script {
+                if (env.CHANGES_DETECTED == 'true') {
+                    def message = """
+❌ *Build Thất Bại*
+📦 Project: vaoluoi-frontend
+🔖 Branch: ${env.GIT_BRANCH}
+🏗 Build: #${env.BUILD_NUMBER}
+👤 User: ${env.BUILD_USER ?: 'Jenkins'}
+🕒 Time: ${new Date().format('dd/MM/yyyy HH:mm:ss')}
+🔗 Build URL: ${env.BUILD_URL}
+                    """.trim()
+                    
+                    sh """
+                    curl -s -X POST https://api.telegram.org/bot\${TELEGRAM_BOT_TOKEN}/sendMessage \\
+                         -d chat_id=\${TELEGRAM_CHAT_ID} \\
+                         -d parse_mode=Markdown \\
+                         -d text='${message}'
+                    """
+                }
             }
         }
     }

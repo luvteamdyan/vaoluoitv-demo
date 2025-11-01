@@ -66,5 +66,4 @@ USER nextjs
 
 EXPOSE 8080
 
-# Start the Next.js application
 CMD ["npm", "start"]
