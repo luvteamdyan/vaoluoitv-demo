@@ -105,13 +105,21 @@ pipeline {
             }
             steps {
                 script {
+                    // Lấy thông tin commit
+                    def commitAuthor = sh(returnStdout: true, script: 'git log -1 --pretty=format:"%an"').trim()
+                    def commitMessage = sh(returnStdout: true, script: 'git log -1 --pretty=format:"%s"').trim()
+                    
+                    // Tính duration
+                    def duration = currentBuild.durationString.replace(' and counting', '')
+                    
                     def message = """
 ✅ *Build Thành Công*
 📦 Project: vaoluoi-frontend
 🔖 Branch: ${env.GIT_BRANCH}
-🏗 Build: #${env.BUILD_NUMBER}
 🐳 Image: ${IMAGE}
-👤 User: ${env.BUILD_USER ?: 'Jenkins'}
+� Commit by: ${commitAuthor}
+� Commit message: ${commitMessage}
+⏱ Duration: ${duration}
 🕒 Time: ${new Date().format('dd/MM/yyyy HH:mm:ss')}
                     """.trim()
                     
@@ -136,12 +144,20 @@ pipeline {
         failure {
             script {
                 if (env.CHANGES_DETECTED == 'true') {
+                    // Lấy thông tin commit
+                    def commitAuthor = sh(returnStdout: true, script: 'git log -1 --pretty=format:"%an"').trim()
+                    def commitMessage = sh(returnStdout: true, script: 'git log -1 --pretty=format:"%s"').trim()
+                    
+                    // Tính duration
+                    def duration = currentBuild.durationString.replace(' and counting', '')
+                    
                     def message = """
 ❌ *Build Thất Bại*
 📦 Project: vaoluoi-frontend
 🔖 Branch: ${env.GIT_BRANCH}
-🏗 Build: #${env.BUILD_NUMBER}
-👤 User: ${env.BUILD_USER ?: 'Jenkins'}
+👤 Commit by: ${commitAuthor}
+� Commit message: ${commitMessage}
+⏱ Duration: ${duration}
 🕒 Time: ${new Date().format('dd/MM/yyyy HH:mm:ss')}
 🔗 Build URL: ${env.BUILD_URL}
                     """.trim()
