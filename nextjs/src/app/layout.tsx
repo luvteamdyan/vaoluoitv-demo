@@ -14,6 +14,9 @@ const geistSans = Geist({
   subsets: ["latin"],
   display: 'swap',
 });
+console.log('Geist Sans font loaded:', geistSans);
+console.log('Geist Sans font loaded:', geistSans);
+console.log('Geist Sans font loaded:', geistSans);
 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
