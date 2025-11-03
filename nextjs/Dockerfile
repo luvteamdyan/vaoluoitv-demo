@@ -1,4 +1,4 @@
-# Multi-stage build for optimal production image
+
 FROM node:18-alpine AS base
 
 # Install dependencies only when needed
@@ -14,18 +14,13 @@ RUN \
   else echo "Lockfile not found." && exit 1; \
   fi
 
-# Rebuild the source code only when needed
 FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
-COPY . .
 
-# Next.js collects completely anonymous telemetry data about general usage.
-# Learn more here: https://nextjs.org/telemetry
-# Uncomment the following line in case you want to disable telemetry during the build.
+# Set environment variables before copying source code
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# Set NEXT_PUBLIC_* variables directly during build
 ARG NEXT_PUBLIC_BASE_URL=https://vaoluoitv.net
 ENV NEXT_PUBLIC_BASE_URL=$NEXT_PUBLIC_BASE_URL
 ARG NEXT_PUBLIC_LIVE_URL=https://vl25.live
@@ -38,9 +33,21 @@ ARG NEXT_PUBLIC_WS_URL=https://api.vaoluoitv.com
 ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
 ARG NEXT_PUBLIC_API_URL=https://api.vaoluoitv.com/api/v1
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_API_AUTH_LUCK8_URL=https://auth.luck8event.com/api/v1
+ENV NEXT_PUBLIC_API_AUTH_LUCK8_URL=$NEXT_PUBLIC_API_AUTH_LUCK8_URL
 
+# Copy only necessary files for build (improves cache)
+COPY next.config.ts ./
+COPY tsconfig.json ./
+COPY tailwind.config.ts ./
+COPY postcss.config.mjs ./
+COPY components.json ./
+COPY public ./public
+COPY src ./src
 
-RUN npm run build
+# Build with Next.js cache mounting (BuildKit feature)
+RUN --mount=type=cache,target=/app/.next/cache \
+    npm run build
 
 # Production image, copy all the files and run next
 FROM base AS runner
@@ -50,12 +57,11 @@ WORKDIR /app
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
-# Copy the public folder
 COPY --from=builder /app/public ./public
+
 
 RUN mkdir .next
 RUN chown nextjs:nodejs .next
-
 
 COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
@@ -64,5 +70,6 @@ COPY --from=builder --chown=nextjs:nodejs /app/package.json ./package.json
 USER nextjs
 
 EXPOSE 8080
+
 
 CMD ["npm", "start"]
