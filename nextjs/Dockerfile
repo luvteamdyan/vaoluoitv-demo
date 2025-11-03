@@ -36,6 +36,9 @@ ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_API_AUTH_LUCK8_URL=https://auth.luck8event.com/api/v1
 ENV NEXT_PUBLIC_API_AUTH_LUCK8_URL=$NEXT_PUBLIC_API_AUTH_LUCK8_URL
 
+# Copy package.json first (required for npm run build)
+COPY package.json package-lock.json* ./
+
 # Copy only necessary files for build (improves cache)
 COPY next.config.ts ./
 COPY tsconfig.json ./
