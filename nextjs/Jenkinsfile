@@ -139,6 +139,34 @@ pipeline {
             script {
                 echo "CHANGES_DETECTED=${env.CHANGES_DETECTED ?: 'unset'}"
                 echo "BUILD_PUSH_OK=${env.BUILD_PUSH_OK ?: 'unset'}"
+                
+                // Cleanup: Remove dangling Docker images and containers
+                echo "Starting cleanup process..."
+                sh '''
+                    # Kill all hanging docker processes (SIGKILL - force kill)
+                    echo "Killing hanging docker processes..."
+                    pkill -9 -f "docker build" || true
+                    pkill -9 -f "docker push" || true
+                    pkill -9 -f "docker pull" || true
+                    
+                    # Stop all running containers from this build
+                    docker ps -q --filter "label=jenkins-build=${BUILD_NUMBER}" | xargs -r docker stop || true
+                    docker ps -q --filter "label=jenkins-build=${BUILD_NUMBER}" | xargs -r docker rm -f || true
+                    
+                    # Remove dangling images (untagged)
+                    docker image prune -f || true
+                    
+                    # Remove build cache older than 24h
+                    docker builder prune -f --filter "until=24h" || true
+                    
+                    # Kill any zombie processes
+                    ps aux | grep -i docker | grep defunct | awk '{print $2}' | xargs -r kill -9 || true
+                    
+                    # Logout from Docker Hub
+                    docker logout || true
+                    
+                    echo "Cleanup completed."
+                '''
             }
         }
         failure {
